@@ -1,226 +1,440 @@
-FIELD CRAFTER 1.15
-==================
+# \# Field Crafter
 
-Field Crafter is a City of Heroes / Homecoming crafting helper. It can read recipe
-and invention-salvage inventory directly from a running City of Heroes client on
-Windows, or use local screenshot OCR as a fallback. After review, it calculates
-what salvage to buy, what surplus is safe to dispose of under the selected policy,
-and whether enough inventory room is available before crafting.
+# 
 
-WHAT IS NEW IN 1.15
--------------------
+# \*\*Field Crafter\*\* is a crafting inventory and shopping-list utility for \*\*City of Heroes: Homecoming\*\*.
 
-Public-release hardening:
-- Added prepare_release.py as the canonical release-data preparation command.
-- Added strict release validation that blocks packaging unless the full recipe
-  database and complete game-memory recipe map pass validation.
-- Added release_database_info.json plus SHA-256 binding between release metadata,
-  the factory SQLite database, and the bundled memory-recipe map.
-- Added a one-command Windows build pipeline that produces both the portable EXE
-  and the Python ZIP only after release validation succeeds.
-- Added individual checksum files, SHA256SUMS.txt, and RELEASE_MANIFEST.json.
-- Added verify_release_artifacts.ps1 for a final EXE/ZIP/hash/manifest/ZIP-structure check.
-- Added a core runtime smoke test that runs before public packaging.
-- First launch remains crafting-data offline-capable. It never silently refreshes
-  Homecoming Wiki data.
+# 
 
-UI cleanup:
-- Review & Edit now places Recipes and Salvage Inventory side-by-side, making better
-  use of horizontal space and allowing a shorter default application window.
-- The old 1220x820 and early-1.15 1220x700 factory-default saved geometries are
-  migrated to the compact 1220x600 default while deliberately resized windows are preserved.
-- Inventory Input now presents live game-memory reading as the primary workflow.
-  The screenshot/OCR fallback remains visible by default, with a Hide/Show control
-  available when the extra workspace is not needed.
-- Inventory Input shows compact recipe/salvage read totals and database status.
-- The footer progress bar is hidden while idle. It appears only during real work;
-  OCR uses determinate screenshot progress while database/memory operations use an
-  indeterminate activity indicator.
-- Database update output no longer consumes most of the Database tab while empty;
-  it opens automatically when an update/map operation begins.
-- Review summary and source labels were tightened for easier scanning.
+# It can read recipes and invention salvage directly from a running City of Heroes client on Windows, or use screenshots and local OCR as a fallback. After reviewing the detected inventory, Field Crafter calculates the salvage needed for your selected recipes, identifies surplus salvage, and helps determine whether enough inventory space is available before crafting.
 
-NORMAL USE - PYTHON VERSION
----------------------------
+# 
 
-1. Extract the complete Field_Crafter_1.15_Python.zip folder.
-2. Double-click:
+# \## Download
 
-       Field Crafter.pyw
+# 
 
-   or run:
+# For normal use, download Field Crafter from the repository's \*\*Releases\*\* page.
 
-       .\launch_gui.ps1
+# 
 
-3. On first launch, Field Crafter creates a private .venv and installs its Python
-   dependencies. Dependency installation can require internet access. The bundled
-   crafting database and game-memory recipe map do NOT require a Wiki connection.
-4. Choose a running City of Heroes character and click Read inventory.
-5. Review recipes/salvage in Review & Edit.
-6. Confirm the detected inventory and click Calculate shopping list.
+# Two versions are available:
 
-SCREENSHOT / OCR FALLBACK
--------------------------
+# 
 
-On Inventory Input, the screenshot/OCR fallback is visible by default and can be
-hidden when not needed. Recipe and salvage screenshots can be added by file picker,
-drag/drop, or clipboard paste. OCR runs
-locally. Nothing is uploaded by the OCR workflow.
+# \* \*\*Field\_Crafter\_1.15.exe\*\* - Recommended for most Windows users. Portable and does not require Python.
 
-DATA UPDATES INSIDE FIELD CRAFTER
----------------------------------
+# \* \*\*Field\_Crafter\_1.15\_Python.zip\*\* - Python version for users who prefer to run the application from source.
 
-The Database tab can scan Homecoming Wiki for a candidate recipe database, validate
-it, and let the user explicitly accept or reject the candidate. It can also refresh
-the user-level game-memory recipe map. These are user-initiated maintenance tools;
-normal first launch never performs a crafting-data refresh.
+# 
 
-MAINTAINER: BUILDING A PUBLIC RELEASE
--------------------------------------
+# The automatically generated \*\*Source code\*\* ZIP/TAR files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field\_Crafter\_1.15\_Python.zip` from the release assets instead.
 
-Use the Build Source package, not an already-generated public ZIP.
+# 
 
-Required on the Windows build PC:
-- Windows 10/11
-- Python 3
-- Internet access to Homecoming Wiki
-- PowerShell
+# \## Features
 
-For a normal public build, run from the extracted Build Source folder:
+# 
 
-       .\build_release.ps1
+# \* Read recipe and invention-salvage inventory directly from a running City of Heroes client.
 
-The script will:
-1. Create/use a private .release_venv.
-2. Install runtime, OCR, and PyInstaller build dependencies.
-3. Compile the Python sources and run core smoke tests.
-4. Live-refresh the complete recipe/salvage database from Homecoming Wiki.
-5. Rebuild the complete game-memory recipe map.
-6. Validate SQLite integrity and all database validation checks.
-7. Validate every canonical set family/member plus all common invention mappings.
-8. Stamp release metadata only after those checks pass.
-9. Re-validate file hashes and redistribution metadata.
-10. Build the portable one-file Windows EXE.
-11. Stage and independently validate the public Python package.
-12. Create the Python ZIP and SHA-256 manifests.
-13. Re-open and verify the final artifacts, checksums, manifest, and Python ZIP structure.
+# \* Select from multiple running City of Heroes characters.
 
-If ANY strict release-data check fails, packaging stops. Do not manually bypass this
-for a public release.
+# \* Screenshot and clipboard OCR fallback when memory reading is unavailable or undesired.
 
-OUTPUTS
--------
+# \* Review and edit detected recipes and salvage before calculating.
 
-After a successful build, dist\ contains at least:
+# \* Highlight entries that require manual review.
 
-       Field_Crafter_1.15.exe
-       Field_Crafter_1.15.exe.sha256
-       Field_Crafter_1.15_Python.zip
-       Field_Crafter_1.15_Python.zip.sha256
-       SHA256SUMS.txt
-       RELEASE_MANIFEST.json
+# \* Select all recipes, common recipes, or individual recipes for crafting.
 
-The EXE is a single-file portable application and does not require Python or a
-sibling _internal folder. The Python ZIP contains one enclosing
-Field_Crafter_1.15_Python folder with the complete runtime source and validated
-factory data.
+# \* Calculate:
 
-For the short maintainer workflow, see LOCAL_RELEASE_STEPS.txt.
+# 
 
-DATA-ONLY RELEASE PREFLIGHT
----------------------------
+# &#x20; \* Salvage that needs to be purchased.
 
-To refresh and fully validate the release data without building packages:
+# &#x20; \* Salvage that can be sold or deleted to make room.
 
-       .\prepare_redistribution.ps1
+# &#x20; \* Other surplus salvage.
 
-This runs the same live refresh and strict release-data gates used by the full build.
+# &#x20; \* Total crafting cost.
 
-REPACKAGING WITHOUT ANOTHER LIVE REFRESH
-----------------------------------------
+# &#x20; \* Whether sufficient inventory space is available.
 
-If you have ALREADY run prepare_release.py/build_release.ps1 successfully and only
-need to rebuild packaging from the exact same validated source tree, you can run:
+# \* Local Homecoming recipe and salvage database.
 
-       .\build_release.ps1 -SkipRefresh
+# \* User-initiated database update and game-memory mapping tools.
 
--SkipRefresh never skips strict validation; it only skips the network refresh step.
-For a new public release snapshot, use the normal command without -SkipRefresh.
+# \* Offline-capable normal operation with a bundled validated crafting database.
 
-DIRECT PYTHON MAINTAINER COMMANDS
----------------------------------
+# 
 
-With PYTHONPATH set to .\src and dependencies installed:
+# \## Requirements
 
-       python prepare_release.py
-       python validate_release_data.py
-       python release_self_test.py
+# 
 
-prepare_release.py replaces factory data only after the refreshed candidate passes
-all required checks. If preparation fails, a concise failure report is written to:
+# \### EXE version
 
-       data\last_release_prepare_failure.txt
+# 
 
-and the existing known-good factory data is not intentionally replaced by a partial
-candidate.
+# \* Windows 10 or Windows 11.
 
-RELEASE METADATA
-----------------
+# \* City of Heroes: Homecoming for direct game-memory inventory reading.
 
-The release-data contract is recorded in:
+# 
 
-       data\release_data_summary.json
-       data\release_database_info.json
+# The portable EXE does not require a Python installation.
 
-A distributable release must report:
+# 
 
-       "release_data_ready": true
-       "redistribution_ready": true
-       "validation_status": "passed"
+# \### Python version
 
-and validate_release_data.py must exit successfully. Metadata also records SHA-256
-hashes of homecoming_recipes.sqlite and memory_recipe_aliases.json so an accidentally
-mixed or modified factory-data pair fails validation.
+# 
 
-USER DATA AND SETTINGS
-----------------------
+# \* Windows 10 or Windows 11.
 
-Writable application state is stored under:
+# \* Python 3.
 
-       %LOCALAPPDATA%\FieldCrafter\
+# \* Internet access may be required the first time the Python version installs its Python dependencies.
 
-This includes the active recipe database, window state, update cache/backups, and
-user-saved memory recipe aliases. Factory data remains bundled with the application.
-A newer validated factory database can replace an older active copy on application
-upgrade; the prior active database is backed up first.
+# 
 
-INTEGRITY
----------
+# The crafting database itself is bundled with Field Crafter and does not need to be downloaded on first launch.
 
-To verify a generated artifact on Windows:
+# 
 
-       Get-FileHash ".\Field_Crafter_1.15.exe" -Algorithm SHA256
-       Get-FileHash ".\Field_Crafter_1.15_Python.zip" -Algorithm SHA256
+# \## Getting Started
 
-Compare the results with the corresponding .sha256 files or SHA256SUMS.txt.
+# 
 
-You can also re-run the complete artifact verification gate with:
+# \### Portable EXE
 
-       .\verify_release_artifacts.ps1
+# 
 
-IMPORTANT BUILD-SOURCE STATUS
------------------------------
+# Download:
 
-A Build Source or testing archive may intentionally contain:
+# 
 
-       "redistribution_ready": false
+# `Field\_Crafter\_1.15.exe`
 
-when it was assembled in an environment that could not complete the live Homecoming
-Wiki refresh. That archive is suitable for development/testing but is NOT the final
-public release. Run build_release.ps1 on your normal Windows PC; only artifacts
-created after its green RELEASE BUILD PASSED result should be redistributed.
+# 
 
-VERSION
--------
+# Place it anywhere you like and run it.
 
-Field Crafter 1.15
+# 
+
+# No installation is required.
+
+# 
+
+# Windows SmartScreen may warn about an unknown publisher because the application is not currently code-signed. You can verify the downloaded file against the published SHA-256 hashes as described below.
+
+# 
+
+# \### Python version
+
+# 
+
+# Download and extract:
+
+# 
+
+# `Field\_Crafter\_1.15\_Python.zip`
+
+# 
+
+# Keep the extracted folder together.
+
+# 
+
+# Launch Field Crafter by double-clicking:
+
+# 
+
+# `Field Crafter.pyw`
+
+# 
+
+# or by running:
+
+# 
+
+# ```powershell
+
+# .\\launch\_gui.ps1
+
+# ```
+
+# 
+
+# On first launch, the Python distribution creates a private Python environment and installs its required packages.
+
+# 
+
+# \## Using Field Crafter
+
+# 
+
+# Field Crafter uses a three-step workflow.
+
+# 
+
+# \### 1. Inventory Input
+
+# 
+
+# For direct game-memory reading:
+
+# 
+
+# 1\. Start City of Heroes and log into the character whose inventory you want to read.
+
+# 2\. Open Field Crafter.
+
+# 3\. Select the appropriate character and server.
+
+# 4\. Click \*\*Read inventory\*\*.
+
+# 
+
+# Field Crafter reads the character's recipe and invention-salvage inventory and sends the results to \*\*Review \& Edit\*\*.
+
+# 
+
+# \### 2. Review \& Edit
+
+# 
+
+# Review the recipes and salvage detected by Field Crafter.
+
+# 
+
+# Recipes selected under \*\*Craft?\*\* are included in the shopping-list calculation.
+
+# 
+
+# Entries requiring manual review are highlighted in red. Selecting a recipe or salvage row displays additional details about how that item was detected.
+
+# 
+
+# When the inventory looks correct, confirm the review and continue to the shopping list.
+
+# 
+
+# \### 3. Shopping List
+
+# 
+
+# Field Crafter calculates the selected crafting requirements and separates the results into:
+
+# 
+
+# \* \*\*BUY\*\* - Salvage still required.
+
+# \* \*\*SELL / DELETE TO MAKE ROOM\*\* - Surplus salvage that may be removed according to the selected disposal policy.
+
+# \* \*\*OTHER SURPLUS\*\* - Additional salvage beyond the selected recipes' requirements.
+
+# 
+
+# The result also shows estimated crafting cost and whether enough inventory space is available.
+
+# 
+
+# \## Screenshot / OCR Fallback
+
+# 
+
+# If direct game-memory reading is unavailable, recipe and salvage screenshots can be supplied using:
+
+# 
+
+# \* File selection.
+
+# \* Drag and drop.
+
+# \* Clipboard paste.
+
+# 
+
+# OCR processing is performed locally on your computer. Screenshots are not uploaded by the OCR workflow.
+
+# 
+
+# Detected OCR confidence and related audit information are shown in the selected item's Details area when applicable.
+
+# 
+
+# Always review OCR-derived inventory before calculating a shopping list.
+
+# 
+
+# \## Database Updates
+
+# 
+
+# Field Crafter ships with a validated Homecoming crafting database so a database download is not required during normal first launch.
+
+# 
+
+# The \*\*Database\*\* tab provides user-initiated maintenance tools for:
+
+# 
+
+# \* Checking Homecoming Wiki for crafting-data changes.
+
+# \* Reviewing and accepting a validated candidate database.
+
+# \* Refreshing game-memory recipe mappings.
+
+# 
+
+# Field Crafter does not silently replace its crafting database during normal startup.
+
+# 
+
+# \## User Data
+
+# 
+
+# Field Crafter stores writable application data under:
+
+# 
+
+# ```text
+
+# %LOCALAPPDATA%\\FieldCrafter\\
+
+# ```
+
+# 
+
+# This may include:
+
+# 
+
+# \* Active recipe database.
+
+# \* Window settings.
+
+# \* Database update cache and backups.
+
+# \* User-level game-memory recipe mappings.
+
+# 
+
+# Removing the application EXE or extracted Python folder does not automatically remove this user data.
+
+# 
+
+# \## Privacy
+
+# 
+
+# Field Crafter is designed to perform its normal inventory processing locally.
+
+# 
+
+# \* Game-memory inventory reading occurs locally.
+
+# \* Screenshot OCR occurs locally.
+
+# \* Screenshots are not uploaded as part of the OCR workflow.
+
+# \* Internet access is used when you explicitly check for Homecoming crafting-data updates and, for the Python distribution, when required Python packages need to be installed.
+
+# 
+
+# \## Verify Your Download
+
+# 
+
+# Each public release includes SHA-256 hashes in:
+
+# 
+
+# `SHA256SUMS.txt`
+
+# 
+
+# To verify the portable EXE in PowerShell:
+
+# 
+
+# ```powershell
+
+# Get-FileHash ".\\Field\_Crafter\_1.15.exe" -Algorithm SHA256
+
+# ```
+
+# 
+
+# To verify the Python ZIP:
+
+# 
+
+# ```powershell
+
+# Get-FileHash ".\\Field\_Crafter\_1.15\_Python.zip" -Algorithm SHA256
+
+# ```
+
+# 
+
+# Compare the returned hash with the corresponding value in `SHA256SUMS.txt`.
+
+# 
+
+# The values must match exactly. Letter case does not matter.
+
+# 
+
+# A matching hash confirms that your downloaded file is byte-for-byte identical to the published release artifact.
+
+# 
+
+# \## Reporting Problems
+
+# 
+
+# Field Crafter 1.15 is currently being made available for public testing and feedback.
+
+# 
+
+# If you encounter a problem, please open an \*\*Issue\*\* in this GitHub repository and include as much relevant information as possible, such as:
+
+# 
+
+# \* Field Crafter version.
+
+# \* EXE or Python version.
+
+# \* Whether the inventory came from game memory or OCR.
+
+# \* What you expected to happen.
+
+# \* What actually happened.
+
+# \* Any displayed error message.
+
+# \* A screenshot when useful.
+
+# 
+
+# For recipe-mapping problems, including the internal recipe/mapping information displayed in the selected recipe's Details section can be especially helpful.
+
+# 
+
+# \## Version
+
+# 
+
+# \*\*Field Crafter 1.15 - Public Test Release\*\*
+
+# 
+
+# Field Crafter is an independent community utility for City of Heroes: Homecoming.
+
+# 
+
