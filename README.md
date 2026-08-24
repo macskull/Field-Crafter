@@ -1,4 +1,4 @@
-﻿# Field Crafter
+# Field Crafter
 
 **Field Crafter** is a crafting inventory and shopping-list utility for **City of Heroes: Homecoming**.
 
@@ -6,14 +6,25 @@ It can read recipes and invention salvage directly from a running City of Heroes
 
 ## Download
 
-For normal use, download Field Crafter from the repository's **Releases** page.
+### Windows EXE - Recommended
 
-Two versions are available:
+**[Download Field Crafter 1.15 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.15/Field_Crafter_1.15.exe)**
 
-- **Field_Crafter_1.15.exe** - Recommended for most Windows users. Portable and does not require Python.
-- **Field_Crafter_1.15_Python.zip** - Python version for users who prefer to run the application from source.
+Portable single-file Windows application. No Python installation is required.
 
-The automatically generated **Source code** ZIP/TAR files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field_Crafter_1.15_Python.zip` from the release assets instead.
+### Python version
+
+**[Download Field Crafter 1.15 Python](https://github.com/macskull/Field-Crafter/releases/download/v1.15/Field_Crafter_1.15_Python.zip)**
+
+Requires Python 3. The prepared Python package includes Field Crafter's validated crafting data and creates its own private Python environment.
+
+### Release information
+
+- **[View the full Field Crafter 1.15 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.15)**
+- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.15/SHA256SUMS.txt)**
+- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.15/RELEASE_MANIFEST.json)**
+
+> The automatically generated **Source code (zip)** and **Source code (tar.gz)** files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field_Crafter_1.15_Python.zip` from the release assets instead.
 
 ## Features
 
@@ -195,7 +206,7 @@ Field Crafter is designed to perform its normal inventory processing locally.
 
 Each public release includes SHA-256 hashes in:
 
-`SHA256SUMS.txt`
+**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.15/SHA256SUMS.txt)**
 
 To verify the portable EXE in PowerShell:
 
@@ -219,7 +230,7 @@ A matching hash confirms that your downloaded file is byte-for-byte identical to
 
 Field Crafter 1.15 is currently being made available for public testing and feedback.
 
-If you encounter a problem, please open an **Issue** in this GitHub repository and include as much relevant information as possible, such as:
+If you encounter a problem, please **[open an Issue](https://github.com/macskull/Field-Crafter/issues)** and include as much relevant information as possible, such as:
 
 - Field Crafter version.
 - EXE or Python version.
@@ -236,4 +247,3 @@ For recipe-mapping problems, including the internal recipe/mapping information d
 **Field Crafter 1.15 - Public Test Release**
 
 Field Crafter is an independent community utility for City of Heroes: Homecoming.
-
