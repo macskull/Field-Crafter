@@ -33,6 +33,26 @@ The automatically generated **Source code** ZIP/TAR files shown by GitHub are no
 - User-initiated database update and game-memory mapping tools.
 - Offline-capable normal operation with a bundled validated crafting database.
 
+## Screenshots
+
+### Inventory Input
+
+Read recipes and invention salvage directly from a running City of Heroes client, with screenshot/OCR input available as a fallback.
+
+![Field Crafter Inventory Input](docs/screenshots/inventory-input.png)
+
+### Review & Edit
+
+Review detected recipes and salvage, choose which recipes to craft, and inspect source or mapping details when needed.
+
+![Field Crafter Review and Edit](docs/screenshots/review-edit.png)
+
+### Shopping List
+
+See the salvage to buy, recommended inventory disposals, surplus salvage, crafting cost, and full calculated result.
+
+![Field Crafter Shopping List](docs/screenshots/shopping-list.png)
+
 ## Requirements
 
 ### EXE version
