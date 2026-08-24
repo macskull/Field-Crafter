@@ -1,0 +1,52 @@
+FIELD CRAFTER 1.15 - PUBLIC RELEASE QUICK STEPS
+================================================
+
+Use the BUILD SOURCE package, not the Python testing package, for this process.
+Run these steps on the Windows PC that will produce the public release.
+
+1. Extract Field_Crafter_1.15_Build_Source.zip to a normal writable folder.
+
+2. Open PowerShell in that folder and run:
+
+       .\build_release.ps1
+
+   The script creates/updates its private .release_venv, refreshes the current
+   Homecoming crafting database, rebuilds the complete game-memory recipe map,
+   runs strict validation and smoke tests, builds the one-file EXE, creates the
+   Python ZIP, generates SHA-256 checksums, and verifies the final artifacts.
+
+3. A successful build ends with:
+
+       FIELD CRAFTER 1.15 RELEASE BUILD PASSED
+
+   If any database, memory-map, package, checksum, or smoke-test gate fails, do
+   not redistribute the output. Fix the reported problem and run the build again.
+
+4. Upload only the finished artifacts from .\dist\ as appropriate:
+
+       Field_Crafter_1.15.exe
+       Field_Crafter_1.15_Python.zip
+
+   Keep SHA256SUMS.txt and RELEASE_MANIFEST.json with the release so recipients
+   can verify what you published.
+
+OPTIONAL COMMANDS
+-----------------
+Prepare/validate release data without packaging:
+
+       .\prepare_redistribution.ps1
+
+Rebuild from already validated release data without touching the Wiki:
+
+       .\build_release.ps1 -SkipRefresh
+
+Verify an existing dist folder again:
+
+       .\verify_release_artifacts.ps1
+
+IMPORTANT
+---------
+The Build Source and Python TESTING package supplied by ChatGPT intentionally
+contain the inherited testing database/map snapshot and are NOT themselves a
+public redistribution build. The public release gate is the successful local
+build_release.ps1 run on your Windows PC.

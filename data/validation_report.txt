@@ -1,0 +1,36 @@
+Homecoming Recipe Database Validation Report
+===========================================
+
+PASS  Invention salvage count: 108 records (matches Homecoming Wiki's stated total).
+PASS  Salvage taxonomy: All 18 rarity/tier/origin combinations contain exactly 6 salvage items.
+PASS  Salvage individual-page taxonomy cross-check: Tier-table vs individual-page category mismatches: 0.
+PASS  Salvage category metadata completeness: Individual salvage pages missing one or more taxonomy categories: 0.
+PASS  Recipe records present: 902 recipes extracted.
+PASS  Recipe type coverage: common_io=26, costume=11, set_enhancement=847, temporary_power=17, vanity_pet=1
+PASS  Common IO canonical coverage: Canonical Common Invention Recipes parsed=26; final common IO recipes=26.
+PASS  Temporary-power index disposition: Index links=18; accounted=18: parsed recipes=14, current pages without recipe tables=1, missing/stale pages=3; additional temporary-power recipes recovered from category cross-checks=3.
+PASS  Costume recipe coverage: Canonical index parsed=11; final costume recipes=11.
+PASS  Vanity-pet invention-salvage coverage: Supplemental source parsed=1; final vanity-pet recipes=1.
+PASS  Craft options: Recipe levels without craft options: 0.
+PASS  Salvage requirements: Craft options with no salvage requirements: 0.
+PASS  Crafting costs: Craft options with no parsed crafting cost: 0.
+PASS  Recipe level bounds: Levels outside 0-50: 0. Level 0 is reserved for explicitly level-independent recipes.
+PASS  Duplicate canonical recipes: Duplicate groups: 0.
+PASS  Canonical recipe aliases: Recipes missing canonical OCR/search alias: 0.
+PASS  Source revision provenance: Recipe source references without revision ID: 0.
+PASS  Unresolved salvage names: Recipes with one or more ingredient links that did not resolve to the 108-item invention-salvage catalog: 0.
+PASS  Extraction notes: Recipes carrying notes=5; informational notes=5; actionable parser notes=0.
+PASS  Spot check: Shield Wall: Defense/Endurance: Level 50 cost and salvage match expected snapshot.
+PASS  Spot check: Analyze Weakness: Defense Debuff: Level 50 cost and salvage match expected snapshot.
+PASS  Spot check: Exploit Weakness: Damage/Endurance: Level 40 cost and salvage match expected snapshot.
+PASS  Spot check: Invention: Damage: Level 50 cost and salvage match expected snapshot.
+PASS  Spot check: Costume Piece: Bat Wings: Level 1 cost and salvage match expected snapshot.
+PASS  Spot check: Pet: Hamidon Bud: Level 0 cost and salvage match expected snapshot.
+PASS  Spot check: Temporary Power: Jet Pack: Three alternative cost/salvage combinations match expected snapshot.
+PASS  Enhancement-only families excluded: Known ATO/Winter/Event enhancement pages excluded from recipe crawling: 72.
+PASS  Salvage reverse-index crawl: Salvage pages that could not be used for the independent reverse-index cross-check: 0.
+PASS  Discovery page dispositions: Pages without a recognized salvage-consuming recipe table: 367; stale/missing page references: 3.
+PASS  Extraction errors: Pages with extraction errors: 0.
+PASS  Discovery cross-check health: Actionable cross-check warnings: 0; informational cross-source differences: 4.
+
+Summary: 31 PASS, 0 WARN, 0 ERROR

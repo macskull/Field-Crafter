@@ -1,0 +1,31 @@
+{
+  "field_crafter_version": "1.15",
+  "database_updated": "2026-08-24T16:49:24.807593+00:00",
+  "database_effective_date": null,
+  "validation_status": "passed",
+  "validated_at_utc": "2026-08-24T16:53:23.670236+00:00",
+  "redistribution_ready": true,
+  "recipe_count": 902,
+  "salvage_count": 108,
+  "set_family_count": null,
+  "memory_mapping_count": 847,
+  "memory_map_coverage": {
+    "complete": true,
+    "error": "",
+    "set_count": 163,
+    "covered_set_count": 163,
+    "member_count": 847,
+    "covered_member_count": 847,
+    "missing_sets": [],
+    "missing_members": [],
+    "invalid_aliases": [],
+    "common_complete": true,
+    "common_count": 26,
+    "covered_common_count": 26,
+    "missing_common": []
+  },
+  "sha256": {
+    "homecoming_recipes.sqlite": "ae68fc1f502a2b8f35403ce887967ff35a7489cc7f9697794439c04d598b4b24",
+    "memory_recipe_aliases.json": "a892f0152e163cba479c4f4e6964dfa93fe81e140a1f1b8d31ad97e29a46bdb6"
+  }
+}

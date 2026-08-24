@@ -1,0 +1,46 @@
+FIELD CRAFTER 1.15 RELEASE NOTES
+================================
+
+Field Crafter 1.15 focuses on public-release readiness and UI space efficiency.
+
+UI
+--
+- Review & Edit Recipes and Salvage Inventory are now side-by-side.
+- Recipe and salvage detail text dynamically wraps to the actual pane width.
+- Recipe and salvage table areas remain equal-height even when detail text wraps differently.
+- Recipe selection controls are consolidated into context-aware Select all/none and Select/Deselect commons buttons.
+- Default window height reduced to 600 logical pixels.
+- Exact 1220x820 and early-1.15 1220x700 factory defaults migrate to 1220x600.
+- Inventory Input prioritizes direct game-memory reads.
+- Screenshot/OCR fallback is shown by default and remains collapsible with Hide/Show.
+- Footer progress is contextual instead of permanently visible.
+- OCR reports determinate screenshot progress.
+- Shopping List Qty/Salvage/Rarity columns are tightened so Rarity stays visible at minimum width.
+- Shopping List salvage-name columns no longer absorb spare width; Rarity receives enough space to show Uncommon in full.
+- Review & Edit salvage-name width is bounded and the Rarity column is widened so Uncommon remains fully visible, including at minimum window width.
+- Review tables no longer devote columns to OCR confidence percentages. Recipe OCR confidence and salvage Overall/Name/Qty confidence are shown only in the selected-row details when the row came from OCR.
+- Recipe and salvage tables no longer use Source or Flag columns. Source/audit information is shown in the selected-row details instead.
+- Rows requiring manual review are highlighted in red, and a warning appears beneath the review summary only when review is required.
+- Long recipe names are truncated with ... when needed; hovering over the recipe cell shows the full canonical name in a tooltip.
+- Empty detail panes simply prompt the user to select a recipe or salvage row.
+- Empty Database update output is hidden until an operation begins.
+
+RELEASE ENGINEERING
+-------------------
+- prepare_release.py performs live database refresh, complete memory-map rebuild,
+  strict validation, atomic factory-data installation, release metadata generation,
+  and SHA-256 binding.
+- validate_release_data.py verifies database integrity, release version/stamp,
+  complete per-recipe memory-map coverage, metadata readiness, counts, and hashes.
+- build_release.ps1 is the canonical one-command public build.
+- A successful build creates a portable one-file EXE and a complete Python ZIP.
+- Packaging aborts when refreshed data or mapping coverage is incomplete.
+- Core runtime smoke tests run before packaging and against the staged Python build.
+- Final artifacts are re-opened and verified against SHA256SUMS.txt and
+  RELEASE_MANIFEST.json; the Python ZIP structure is also checked before success.
+
+FIRST-LAUNCH BEHAVIOR
+---------------------
+Field Crafter continues to ship its crafting database and memory map. First launch
+may install Python dependencies for the Python distribution, but it never requires a
+Homecoming Wiki crafting-data refresh.
