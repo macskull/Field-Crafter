@@ -1,4 +1,4 @@
-# Field Crafter
+﻿# Field Crafter
 
 **Field Crafter** is a crafting inventory and shopping-list utility for **City of Heroes: Homecoming**.
 
@@ -39,19 +39,19 @@ The automatically generated **Source code** ZIP/TAR files shown by GitHub are no
 
 Read recipes and invention salvage directly from a running City of Heroes client, with screenshot/OCR input available as a fallback.
 
-![Field Crafter Inventory Input](docs/screenshots/inventory-input.png)
+![Field Crafter Inventory Input](./docs/screenshots/inventory-input.png)
 
 ### Review & Edit
 
 Review detected recipes and salvage, choose which recipes to craft, and inspect source or mapping details when needed.
 
-![Field Crafter Review and Edit](docs/screenshots/review-edit.png)
+![Field Crafter Review and Edit](./docs/screenshots/review-edit.png)
 
 ### Shopping List
 
 See the salvage to buy, recommended inventory disposals, surplus salvage, crafting cost, and full calculated result.
 
-![Field Crafter Shopping List](docs/screenshots/shopping-list.png)
+![Field Crafter Shopping List](./docs/screenshots/shopping-list.png)
 
 ## Requirements
 
@@ -236,3 +236,4 @@ For recipe-mapping problems, including the internal recipe/mapping information d
 **Field Crafter 1.15 - Public Test Release**
 
 Field Crafter is an independent community utility for City of Heroes: Homecoming.
+
