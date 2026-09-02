@@ -77,6 +77,8 @@ def main() -> int:
         or recovery_policy.get("persistent") is not False
         or recovery_policy.get("root_locator_recovery") is not False
         or recovery_policy.get("signed_candidate_validation_may_use_recovery") is not False
+        or recovery_policy.get("stale_empty_guard") is not True
+        or recovery_policy.get("stale_empty_requires_positive_moved_collection_proof") is not True
     ):
         raise RuntimeError(
             f"Memory session-recovery policy smoke test failed: {recovery_policy!r}"

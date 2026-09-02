@@ -28,6 +28,7 @@ from .memory_profiles import (
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
 # FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
 # FIELD_CRAFTER_MEMORY_ROOT_RECOVERY_V5
+# FIELD_CRAFTER_MEMORY_STALE_EMPTY_GUARD_V5_2
 # Memory locations/structure offsets are now declarative and profile-driven.
 # Fixed RVAs are intentionally not retained here.
 
@@ -1141,6 +1142,60 @@ class GameInventoryReader:
                         f"the multi-sample gate, but the full inventory retry failed: "
                         f"{retry_exc}"
                     ) from original_exc
+
+            # A moved collection can leave the old signed/current header as
+            # pointer=0/capacity=0/total=0. Structurally that is a valid genuinely
+            # empty inventory, so the normal reader does not throw. Before accepting
+            # a zero total, v5.2 asks the existing bounded type-aware recovery layer
+            # whether a populated moved collection can be positively proven nearby.
+            if (
+                self.allow_session_recovery
+                and recovery_result is None
+                and (int(inventory[1]) == 0 or int(inventory[4]) == 0)
+            ):
+                from .memory_recovery import (
+                    MemorySessionRecoveryError,
+                    recover_stale_empty_inventory_profile,
+                )
+
+                zero_kinds = tuple(
+                    kind
+                    for kind, total in (
+                        ("recipes", int(inventory[1])),
+                        ("salvage", int(inventory[4])),
+                    )
+                    if total == 0
+                )
+                try:
+                    stale_empty_recovery = (
+                        recover_stale_empty_inventory_profile(
+                            mem,
+                            context.character_address,
+                            profile,
+                            zero_kinds=zero_kinds,
+                        )
+                    )
+                except MemorySessionRecoveryError as recovery_exc:
+                    raise GameMemoryError(
+                        "An inventory header was empty at the signed/current "
+                        "offset, but bounded moved-collection evidence was "
+                        f"unsafe to accept: {recovery_exc}"
+                    ) from recovery_exc
+
+                if stale_empty_recovery is not None:
+                    recovery_result = stale_empty_recovery
+                    profile = recovery_result.profile
+                    try:
+                        inventory = self._read_inventory_with_profile(
+                            mem, context, profile
+                        )
+                    except GameMemoryError as retry_exc:
+                        raise GameMemoryError(
+                            "A stale-empty inventory header was proven to have "
+                            "moved and passed the three-sample recovery gate, "
+                            "but the full production retry failed: "
+                            f"{retry_exc}"
+                        ) from retry_exc
 
             (
                 recipe_capacity,

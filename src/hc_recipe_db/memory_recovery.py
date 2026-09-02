@@ -9,6 +9,7 @@ from .memory_profiles import MemoryProfile, as_int
 
 
 # FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
+# FIELD_CRAFTER_MEMORY_STALE_EMPTY_GUARD_V5_2
 #
 # Deliberately conservative and ephemeral:
 # - root identity/server/roster/Entity/Character resolution is NOT recovered here
@@ -82,6 +83,8 @@ def recovery_policy_summary() -> dict[str, Any]:
         "persistent": False,
         "root_locator_recovery": False,
         "signed_candidate_validation_may_use_recovery": False,
+        "stale_empty_guard": True,
+        "stale_empty_requires_positive_moved_collection_proof": True,
     }
 
 
@@ -303,3 +306,148 @@ def recover_inventory_profile(
         profile=derived,
         recovered=tuple(recovered_items),
     )
+
+def recover_stale_empty_inventory_profile(
+    mem,
+    character: int,
+    profile: MemoryProfile,
+    *,
+    zero_kinds: tuple[str, ...],
+) -> MemorySessionRecoveryResult | None:
+    """Recover a moved populated collection hidden behind a stale all-zero header.
+
+    A zero total is legitimate by itself. This guard only acts when the bounded,
+    type-aware scan positively finds a strong moved collection. If there is no
+    strong candidate, None is returned and the original zero inventory remains
+    accepted. If strong evidence exists but is ambiguous/unsafe, fail closed.
+    """
+    from .memory_diagnostics import _scan_header_candidates
+
+    requested = tuple(
+        kind for kind in zero_kinds if kind in {"recipes", "salvage"}
+    )
+    if not requested:
+        return None
+
+    proven_kinds: list[str] = []
+    for kind in requested:
+        cfg = profile.structure("character")[kind]
+        expected = as_int(cfg["collection_offset"])
+        capacity_delta = as_int(cfg["capacity_offset"]) - expected
+        count_delta = as_int(cfg["count_offset"]) - expected
+        probe_kind = "recipe" if kind == "recipes" else "salvage"
+
+        scan = _scan_header_candidates(
+            mem,
+            character,
+            profile,
+            kind=probe_kind,
+            expected_offset=expected,
+            capacity_delta=capacity_delta,
+            count_delta=count_delta,
+        )
+        strong = list(scan.get("strong_candidates") or [])
+        if not strong:
+            # No positive proof of a moved populated collection. Treat the current
+            # zero header as a legitimate empty inventory.
+            continue
+
+        acceptable, reason = _winner_is_acceptable(scan)
+        if not acceptable:
+            raise MemorySessionRecoveryError(
+                f"{kind} is empty at the signed/current offset, but the bounded "
+                f"scan found strong moved-collection evidence that was unsafe to "
+                f"adopt: {reason}."
+            )
+        proven_kinds.append(kind)
+
+    if not proven_kinds:
+        return None
+
+    recovered_items: list[RecoveredInventoryKind] = []
+    chosen: dict[str, tuple[int, int, int]] = {}
+
+    for kind in ("recipes", "salvage"):
+        cfg = profile.structure("character")[kind]
+        original = as_int(cfg["collection_offset"])
+        capacity_delta = as_int(cfg["capacity_offset"]) - original
+        count_delta = as_int(cfg["count_offset"]) - original
+
+        if kind in proven_kinds:
+            (
+                recovered,
+                capacity_delta,
+                count_delta,
+                min_score,
+                min_matches,
+            ) = _scan_one_kind(
+                mem,
+                character,
+                profile,
+                kind=kind,
+            )
+        else:
+            recovered = original
+            min_score = 0.0
+            min_matches = 0
+
+        chosen[kind] = (recovered, capacity_delta, count_delta)
+        if recovered != original:
+            recovered_items.append(
+                RecoveredInventoryKind(
+                    kind=kind,
+                    original_collection_offset=original,
+                    recovered_collection_offset=recovered,
+                    capacity_delta=capacity_delta,
+                    count_delta=count_delta,
+                    sample_count=RECOVERY_SAMPLE_COUNT,
+                    minimum_score=min_score,
+                    minimum_namespace_matches=min_matches,
+                )
+            )
+
+    if not recovered_items:
+        # Defensive: a strong moved candidate was proven above, so reaching this
+        # state would mean the multi-sample gate contradicted the first scan.
+        raise MemorySessionRecoveryError(
+            "A stale-empty moved collection was initially proven, but the "
+            "three-sample recovery gate did not confirm an offset change."
+        )
+
+    if chosen["recipes"][0] == chosen["salvage"][0]:
+        raise MemorySessionRecoveryError(
+            "Recipe and salvage stale-empty recovery resolved to the same "
+            "Character offset."
+        )
+
+    data = copy.deepcopy(profile.data)
+    character_cfg = data.setdefault("structures", {}).setdefault(
+        "character", {}
+    )
+    for kind, (collection, capacity_delta, count_delta) in chosen.items():
+        kind_cfg = character_cfg.setdefault(kind, {})
+        kind_cfg["collection_offset"] = collection
+        kind_cfg["capacity_offset"] = collection + capacity_delta
+        kind_cfg["count_offset"] = collection + count_delta
+
+    data["_session_recovery"] = {
+        "applied": True,
+        "persistent": False,
+        "trigger": "stale_empty_guard",
+        "recovered_kinds": [item.kind for item in recovered_items],
+        "sample_count": RECOVERY_SAMPLE_COUNT,
+        "policy": recovery_policy_summary(),
+    }
+
+    derived = MemoryProfile(
+        profile_id=profile.profile_id,
+        profile_version=profile.profile_version,
+        priority=profile.priority,
+        source=f"{profile.source}+session-recovery",
+        data=data,
+    )
+    return MemorySessionRecoveryResult(
+        profile=derived,
+        recovered=tuple(recovered_items),
+    )
+

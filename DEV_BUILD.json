@@ -11,9 +11,13 @@
     "This tree is not redistribution-ready merely because the version transition succeeded.",
     "Memory diagnostics v3.1 adds type-aware recipe/salvage recovery scoring, empty-candidate downgrading, winner/runner-up margins, and diagnostic-only nearest masked code landmarks when an exact root signature has zero hits.",
     "Memory session recovery v4 can temporarily recover Character-local recipe/salvage header drift only after the signed profile root chain has passed semantic validation. It requires a unique strong namespace-compatible winner across three samples, is not persisted, and is disabled during signed profile candidate validation.",
-    "Memory root recovery v5 can temporarily recover small fixed-byte drift in identity, selected-server, and roster code signatures. It requires a unique best nearest masked landmark, proves identity/roster/Entity name agreement and Character vitals across three samples, is never persisted, and is disabled during signed profile candidate validation."
+    "Memory root recovery v5 can temporarily recover small fixed-byte drift in identity, selected-server, and roster code signatures. It requires a unique best nearest masked landmark, proves identity/roster/Entity name agreement and Character vitals across three samples, is never persisted, and is disabled during signed profile candidate validation.",
+    "Integrated recovery self-test v5.1 exercises the actual GameInventoryReader.read path with simultaneous in-memory drift of all three root signatures and both recipe/salvage Character header groups. It proves exact root and exact inventory failure first, then requires v5 root recovery followed by v4 inventory recovery, with no persistent memory-definition changes.",
+    "Stale-empty inventory guard v5.2 closes a recovery gap discovered by the integrated v5.1 test: a moved recipe/salvage collection can leave the old header all-zero, which is structurally indistinguishable from a legitimate empty inventory. Zero totals now trigger only a bounded type-aware proof scan; genuine empty inventories remain valid, while a strong moved collection enters the existing three-sample v4 recovery gate."
   ],
   "memory_diagnostics_version": "3.1",
   "memory_session_recovery_version": "4",
-  "memory_root_recovery_version": "5"
+  "memory_root_recovery_version": "5",
+  "memory_integrated_recovery_test_version": "5.1",
+  "memory_stale_empty_guard_version": "5.2"
 }
