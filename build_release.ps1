@@ -194,6 +194,16 @@ foreach ($Item in $RuntimeItems) {
     Copy-Item -Recurse -Force $Source $PythonStage
 }
 
+# Mark this staged tree as a prepared release distribution. Runtime version
+# reporting uses this marker to distinguish the public Python package from a
+# development source checkout.
+$ReleaseMarker = Join-Path $PythonStage ".field_crafter_release"
+[System.IO.File]::WriteAllText(
+    $ReleaseMarker,
+    "Field Crafter $Version release distribution`n",
+    [System.Text.UTF8Encoding]::new($false)
+)
+
 # Remove development notes/caches from the public data folder while retaining the
 # validated database, memory map, validation reports, and release metadata.
 $PublicDataKeep = @(

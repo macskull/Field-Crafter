@@ -160,6 +160,34 @@ def main() -> int:
         )
         require(
             checks,
+            "python_stage_creates_release_marker",
+            '".field_crafter_release"' in content["build"]
+            and "$PythonStage" in content["build"]
+            and "ReleaseMarker" in content["build"],
+            "build_release.ps1",
+        )
+        require(
+            checks,
+            "runtime_version_distinguishes_release_from_dev",
+            "DEV_VERSION" in version_text
+            and 'RELEASE_VERSION = "1.16"' in version_text
+            and (
+                'getattr(sys, "frozen", False)' in version_text
+                or "sys.frozen" in version_text
+            )
+            and ".field_crafter_release" in version_text
+            and "_is_release_runtime" in version_text,
+            "src/hc_recipe_db/version.py",
+        )
+        require(
+            checks,
+            "runtime_app_version_uses_release_context",
+            "APP_VERSION = RELEASE_VERSION if _is_release_runtime() else DEV_VERSION"
+            in version_text,
+            "src/hc_recipe_db/version.py",
+        )
+        require(
+            checks,
             "launcher_uses_no_index",
             '"--no-index"' in content["launcher"],
             "Field Crafter.pyw",
