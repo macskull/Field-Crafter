@@ -21,7 +21,8 @@ from .memory_profiles import MemoryProfile, MemoryProfileManager, as_int, parse_
 from .version import APP_VERSION
 
 
-DIAGNOSTIC_SCHEMA_VERSION = 2
+# FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6
+DIAGNOSTIC_SCHEMA_VERSION = 3
 MAX_REPORTED_SIGNATURE_HITS = 32
 MAX_REPORTED_LOCATOR_CANDIDATES = 16
 MAX_REPORTED_COLLECTION_ENTRIES = 96
@@ -1044,21 +1045,55 @@ def collect_memory_diagnostic(
                 for item in identity.get("candidates", [])
                 if item.get("valid") and item.get("name")
             }
+            if (
+                label_name
+                and _valid_identity_string(str(label_name).strip(), max_len=63)
+            ):
+                # The v5 process selector can itself have been recovered through
+                # conservative root semantics. Keep it only as diagnostic name
+                # evidence; structural candidates are never auto-adopted.
+                identity_names.add(str(label_name).strip())
             try:
                 roster = _probe_roster(mem, profile, identity_names)
             except Exception as exc:
                 roster = {"error": str(exc), "signature_hit_count": 0, "candidates": [], "nearest_landmarks": {"attempted": False, "reason": "probe_failed", "candidates": []}}
 
+            try:
+                from .memory_structural_diagnostics import (
+                    collect_structural_drift_evidence,
+                )
+                structural = collect_structural_drift_evidence(
+                    mem,
+                    profile,
+                    trusted_identity_names=identity_names,
+                    roster_observation=roster,
+                )
+            except Exception as exc:
+                structural = {
+                    "diagnostic_only": True,
+                    "auto_adopted": False,
+                    "persistent_changes": False,
+                    "status": "probe_failed",
+                    "error": str(exc),
+                }
+
             profile_report["observations"] = {
                 "identity": identity,
                 "server": server,
                 "roster": roster,
+                "structural_drift": structural,
             }
             profile_report["summary"] = {
                 "identity_valid_candidates": int(identity.get("valid_candidate_count") or 0),
                 "server_valid_candidates": int(server.get("valid_candidate_count") or 0),
                 "roster_semantic_valid_candidates": int(
                     roster.get("semantic_valid_candidate_count") or 0
+                ),
+                "structural_drift_status": structural.get("status", ""),
+                "structural_clear_evidence": sum(
+                    1
+                    for value in (structural.get("summary") or {}).values()
+                    if value is True
                 ),
             }
             report["profiles"].append(profile_report)
@@ -1181,6 +1216,91 @@ def _analysis_text(report: dict[str, Any]) -> str:
                     lines.append(
                         f"        empty/unproven observations: {rendered}"
                     )
+        structural = obs.get("structural_drift") or {}
+        lines.append(
+            f"  Structural drift diagnostics: status={structural.get('status')}, "
+            f"diagnostic_only={structural.get('diagnostic_only')}, "
+            f"auto_adopted={structural.get('auto_adopted')}"
+        )
+        anchor = structural.get("roster_anchor") or {}
+        if anchor.get("resolved"):
+            lines.append(
+                f"    roster code anchor: source={anchor.get('source')}, "
+                f"raw_count={anchor.get('raw_roster_count')}"
+            )
+        else:
+            lines.append(
+                f"    roster code anchor unavailable: "
+                f"{anchor.get('reason') or structural.get('reason') or 'unknown'}"
+            )
+
+        record = structural.get("roster_record") or {}
+        name_scan = record.get("name_offset_scan") or {}
+        name_winner = name_scan.get("winner")
+        if name_winner:
+            lines.append(
+                f"    roster name field candidate: {name_winner.get('offset')} "
+                f"delta={name_winner.get('delta_from_expected')}"
+            )
+
+        entity_scan = record.get("entity_pointer_offset_scan") or {}
+        entity_winner = entity_scan.get("winner")
+        if entity_winner:
+            lines.append(
+                f"    roster Entity* field candidate: {entity_winner.get('offset')} "
+                f"delta={entity_winner.get('delta_from_expected')}"
+            )
+            entity_name = (
+                entity_winner.get("entity_name_offset_scan") or {}
+            ).get("winner")
+            if entity_name:
+                lines.append(
+                    f"      Entity name field candidate: {entity_name.get('offset')} "
+                    f"delta={entity_name.get('delta_from_expected')}"
+                )
+            character_scan = (
+                entity_winner.get("character_pointer_offset_scan") or {}
+            )
+            character_winner = character_scan.get("winner")
+            if character_winner:
+                lines.append(
+                    f"      Entity Character* field candidate: "
+                    f"{character_winner.get('offset')} "
+                    f"delta={character_winner.get('delta_from_expected')}"
+                )
+                vitals = (
+                    character_winner.get("vitals_common_shift") or {}
+                ).get("winner")
+                if vitals:
+                    lines.append(
+                        f"        Character vitals common shift candidate: "
+                        f"{vitals.get('shift'):+d} bytes"
+                    )
+
+        entries = structural.get("entries") or {}
+        for kind in ("recipes", "salvage"):
+            block = entries.get(kind) or {}
+            if not block.get("available"):
+                continue
+            quantity = (block.get("quantity_offset_scan") or {}).get("winner")
+            pair = (
+                block.get("definition_and_name_offset_scan") or {}
+            ).get("winner")
+            lines.append(
+                f"    {kind} entry layout: "
+                f"quantity_offset={quantity.get('offset') if quantity else None}; "
+                f"definition_offset={pair.get('definition_pointer_offset') if pair else None}; "
+                f"name_pointer_offset={pair.get('internal_name_pointer_offset') if pair else None}"
+            )
+            if kind == "recipes":
+                level = (
+                    block.get("recipe_level_offset_scan") or {}
+                ).get("winner")
+                lines.append(
+                    f"      recipe level field candidate: "
+                    f"{level.get('offset') if level else None}"
+                )
+
         lines.append("")
 
     lines.extend([
@@ -1188,6 +1308,7 @@ def _analysis_text(report: dict[str, Any]) -> str:
         "  No raw process-memory dump is included.",
         "  Successful/near code landmarks include hashes of small code windows, not raw code bytes.",
         "  Bounded recovery candidates are observations only; none were auto-adopted.",
+        "  Structural-drift candidates are diagnostic observations only and are never auto-adopted or persisted.",
         "",
     ])
     return "\n".join(lines)

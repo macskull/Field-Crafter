@@ -9,6 +9,7 @@ from hc_recipe_db.game_memory import MemoryNameResolver
 from hc_recipe_db.memory_profiles import MemoryProfileManager
 from hc_recipe_db.memory_profile_updates import load_update_config
 from hc_recipe_db.memory_diagnostics import diagnostic_filename
+from hc_recipe_db.memory_structural_diagnostics import structural_diagnostic_policy_summary
 from hc_recipe_db.memory_recovery import recovery_policy_summary
 from hc_recipe_db.memory_root_recovery import root_recovery_policy_summary
 from hc_recipe_db.gui import _auction_search_batches
@@ -70,6 +71,20 @@ def main() -> int:
     diagnostic_name = diagnostic_filename(1234)
     if not diagnostic_name.startswith("field_crafter_memory_diagnostic_") or not diagnostic_name.endswith("_pid1234.zip"):
         raise RuntimeError(f"Memory diagnostic filename smoke test failed: {diagnostic_name!r}")
+
+    structural_policy = structural_diagnostic_policy_summary()
+    if (
+        structural_policy.get("diagnostic_only") is not True
+        or structural_policy.get("auto_adopted") is not False
+        or structural_policy.get("persistent") is not False
+        or structural_policy.get("entry_layout_auto_recovery") is not False
+        or structural_policy.get("entity_character_layout_auto_recovery") is not False
+        or structural_policy.get("vitals_layout_auto_recovery") is not False
+    ):
+        raise RuntimeError(
+            f"Memory structural-diagnostic policy smoke test failed: "
+            f"{structural_policy!r}"
+        )
 
     recovery_policy = recovery_policy_summary()
     if (
