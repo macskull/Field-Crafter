@@ -19,6 +19,7 @@ from .version import APP_VERSION
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
 # FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
+# FIELD_CRAFTER_MEMORY_ROOT_RECOVERY_V5
 from .game_memory import (
     GameInventoryReader, GameMemoryError, MemoryNameResolver,
     list_city_of_heroes_processes, review_from_memory_snapshot,
@@ -1531,6 +1532,17 @@ class CraftingHelperGUI:
             f"Inventory read complete from {source_label}: "
             f"{snapshot.recipe_total} recipes and {snapshot.salvage_total} invention salvage."
         )
+        if snapshot.memory_root_recovery_applied:
+            recovered_roots = " and ".join(
+                snapshot.memory_root_recovery_locators
+            ) or "root locators"
+            status += (
+                f" Session-only root-locator recovery was validated for "
+                f"{recovered_roots} across "
+                f"{snapshot.memory_root_recovery_samples} samples. "
+                "Signed memory definitions were not changed. "
+                "Check for memory updates when convenient."
+            )
         if snapshot.memory_recovery_applied:
             recovered = " and ".join(snapshot.memory_recovery_kinds) or "inventory"
             status += (

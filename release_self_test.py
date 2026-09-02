@@ -10,6 +10,7 @@ from hc_recipe_db.memory_profiles import MemoryProfileManager
 from hc_recipe_db.memory_profile_updates import load_update_config
 from hc_recipe_db.memory_diagnostics import diagnostic_filename
 from hc_recipe_db.memory_recovery import recovery_policy_summary
+from hc_recipe_db.memory_root_recovery import root_recovery_policy_summary
 from hc_recipe_db.gui import _auction_search_batches
 
 
@@ -79,6 +80,18 @@ def main() -> int:
     ):
         raise RuntimeError(
             f"Memory session-recovery policy smoke test failed: {recovery_policy!r}"
+        )
+
+    root_recovery_policy = root_recovery_policy_summary()
+    if (
+        int(root_recovery_policy.get("sample_count") or 0) < 3
+        or root_recovery_policy.get("persistent") is not False
+        or root_recovery_policy.get("unique_best_code_candidate_required") is not True
+        or root_recovery_policy.get("identity_roster_entity_name_agreement_required") is not True
+        or root_recovery_policy.get("signed_candidate_validation_may_use_recovery") is not False
+    ):
+        raise RuntimeError(
+            f"Memory root-recovery policy smoke test failed: {root_recovery_policy!r}"
         )
 
     batches = _auction_search_batches(

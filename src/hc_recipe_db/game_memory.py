@@ -27,6 +27,7 @@ from .memory_profiles import (
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
 # FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
+# FIELD_CRAFTER_MEMORY_ROOT_RECOVERY_V5
 # Memory locations/structure offsets are now declarative and profile-driven.
 # Fixed RVAs are intentionally not retained here.
 
@@ -106,6 +107,9 @@ class MemoryInventorySnapshot:
     memory_recovery_applied: bool = False
     memory_recovery_kinds: tuple[str, ...] = field(default_factory=tuple)
     memory_recovery_samples: int = 0
+    memory_root_recovery_applied: bool = False
+    memory_root_recovery_locators: tuple[str, ...] = field(default_factory=tuple)
+    memory_root_recovery_samples: int = 0
 
     @property
     def unresolved_recipe_count(self) -> int:
@@ -610,6 +614,23 @@ def list_city_of_heroes_processes() -> list[GameProcessInfo]:
     found: list[GameProcessInfo] = []
     for pid, exe in raw:
         character, server = _read_process_identity(pid)
+        if not character or not server:
+            try:
+                from .memory_root_recovery import recover_root_context
+                with ProcessMemory(pid) as recovery_mem:
+                    selector_recovery = recover_root_context(
+                        recovery_mem,
+                        MemoryProfileManager(),
+                        require_server=True,
+                    )
+                if not character:
+                    character = selector_recovery.context.character_name
+                if not server:
+                    server = selector_recovery.context.server
+            except Exception:
+                # Selector labeling remains best-effort. The actual inventory read
+                # has its own fail-closed recovery and diagnostic path.
+                pass
         found.append(
             GameProcessInfo(
                 pid=pid,
@@ -954,6 +975,7 @@ class GameInventoryReader:
         memory_profile_path: str | Path | None = None,
         profile_manager: MemoryProfileManager | None = None,
         allow_session_recovery: bool = True,
+        allow_root_recovery: bool = True,
     ):
         self.db_path = Path(db_path)
         self.alias_path = Path(alias_path) if alias_path else None
@@ -962,6 +984,7 @@ class GameInventoryReader:
             user_pack_path=memory_profile_path
         )
         self.allow_session_recovery = bool(allow_session_recovery)
+        self.allow_root_recovery = bool(allow_root_recovery)
 
     @staticmethod
     def _validate_header(
@@ -1053,14 +1076,34 @@ class GameInventoryReader:
         pid = process.pid if isinstance(process, GameProcessInfo) else int(process)
         title = process.window_title if isinstance(process, GameProcessInfo) else ""
         recovery_result = None
+        root_recovery_result = None
 
         with ProcessMemory(pid) as mem:
-            # Root resolution is authoritative and is never guessed by this recovery
-            # layer. If identity -> roster -> Entity -> Character fails, the exception
-            # leaves this method before any inventory recovery is attempted.
-            context = _resolve_memory_context(
-                mem, self.profile_manager, require_server=False
-            )
+            try:
+                context = _resolve_memory_context(
+                    mem, self.profile_manager, require_server=False
+                )
+            except GameMemoryError as original_root_exc:
+                if not self.allow_root_recovery:
+                    raise
+
+                from .memory_root_recovery import (
+                    MemoryRootRecoveryError,
+                    recover_root_context,
+                )
+                try:
+                    root_recovery_result = recover_root_context(
+                        mem,
+                        self.profile_manager,
+                        require_server=False,
+                    )
+                    context = root_recovery_result.context
+                except MemoryRootRecoveryError as recovery_exc:
+                    raise GameMemoryError(
+                        f"{original_root_exc} Conservative session-only root-locator "
+                        f"recovery was attempted but not accepted: {recovery_exc}"
+                    ) from original_root_exc
+
             profile = context.profile
 
             try:
@@ -1132,6 +1175,17 @@ class GameInventoryReader:
             ),
             memory_recovery_samples=(
                 recovery_result.sample_count if recovery_result else 0
+            ),
+            memory_root_recovery_applied=bool(
+                root_recovery_result and root_recovery_result.applied
+            ),
+            memory_root_recovery_locators=(
+                root_recovery_result.recovered_locators
+                if root_recovery_result else ()
+            ),
+            memory_root_recovery_samples=(
+                root_recovery_result.sample_count
+                if root_recovery_result else 0
             ),
         )
     def _read_recipes(
@@ -1315,11 +1369,16 @@ def validate_memory_profile_pack_live(
         alias_path=alias_path,
         profile_manager=manager,
         allow_session_recovery=False,
+        allow_root_recovery=False,
     )
     snapshot = reader.read(int(pid))
     if snapshot.memory_recovery_applied:
         raise GameMemoryError(
             "Candidate memory profile validation attempted to use session recovery."
+        )
+    if snapshot.memory_root_recovery_applied:
+        raise GameMemoryError(
+            "Candidate memory profile validation attempted to use root recovery."
         )
     if snapshot.memory_profile_id != context.profile.profile_id:
         raise GameMemoryError(
@@ -1415,6 +1474,9 @@ def review_from_memory_snapshot(snapshot: MemoryInventorySnapshot) -> dict[str, 
                 "memory_recovery_applied": snapshot.memory_recovery_applied,
                 "memory_recovery_kinds": list(snapshot.memory_recovery_kinds),
                 "memory_recovery_samples": snapshot.memory_recovery_samples,
+                "memory_root_recovery_applied": snapshot.memory_root_recovery_applied,
+                "memory_root_recovery_locators": list(snapshot.memory_root_recovery_locators),
+                "memory_root_recovery_samples": snapshot.memory_root_recovery_samples,
             },
         },
     }
