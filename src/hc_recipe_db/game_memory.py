@@ -26,6 +26,7 @@ from .memory_profiles import (
 # FIELD_CRAFTER_MEMORY_PROFILE_UPDATES_V2
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
+# FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
 # Memory locations/structure offsets are now declarative and profile-driven.
 # Fixed RVAs are intentionally not retained here.
 
@@ -102,6 +103,9 @@ class MemoryInventorySnapshot:
     memory_profile_id: str = ""
     memory_profile_version: str = ""
     memory_profile_source: str = ""
+    memory_recovery_applied: bool = False
+    memory_recovery_kinds: tuple[str, ...] = field(default_factory=tuple)
+    memory_recovery_samples: int = 0
 
     @property
     def unresolved_recipe_count(self) -> int:
@@ -949,6 +953,7 @@ class GameInventoryReader:
         alias_path: str | Path | None = None,
         memory_profile_path: str | Path | None = None,
         profile_manager: MemoryProfileManager | None = None,
+        allow_session_recovery: bool = True,
     ):
         self.db_path = Path(db_path)
         self.alias_path = Path(alias_path) if alias_path else None
@@ -956,6 +961,7 @@ class GameInventoryReader:
         self.profile_manager = profile_manager or MemoryProfileManager(
             user_pack_path=memory_profile_path
         )
+        self.allow_session_recovery = bool(allow_session_recovery)
 
     @staticmethod
     def _validate_header(
@@ -981,62 +987,126 @@ class GameInventoryReader:
                 f"{kind} collection pointer is null while total is {total}."
             )
 
+    def _read_inventory_with_profile(
+        self,
+        mem: ProcessMemory,
+        context: _ResolvedMemoryContext,
+        profile: MemoryProfile,
+    ) -> tuple[int, int, list[MemoryRecipe], int, int, list[MemorySalvage]]:
+        character = context.character_address
+        character_cfg = profile.structure("character")
+        recipe_cfg = character_cfg["recipes"]
+        salvage_cfg = character_cfg["salvage"]
+        validation = profile.validation()
+        max_capacity = as_int(validation["max_inventory_capacity"])
+
+        recipe_array = mem.qword(
+            character + as_int(recipe_cfg["collection_offset"])
+        )
+        recipe_capacity = mem.u32(
+            character + as_int(recipe_cfg["capacity_offset"])
+        )
+        recipe_total = mem.u32(
+            character + as_int(recipe_cfg["count_offset"])
+        )
+        salvage_array = mem.qword(
+            character + as_int(salvage_cfg["collection_offset"])
+        )
+        salvage_capacity = mem.u32(
+            character + as_int(salvage_cfg["capacity_offset"])
+        )
+        salvage_total = mem.u32(
+            character + as_int(salvage_cfg["count_offset"])
+        )
+
+        self._validate_header(
+            "Recipe inventory",
+            recipe_capacity,
+            recipe_total,
+            recipe_array,
+            max_capacity=max_capacity,
+        )
+        self._validate_header(
+            "Salvage inventory",
+            salvage_capacity,
+            salvage_total,
+            salvage_array,
+            max_capacity=max_capacity,
+        )
+
+        recipes = self._read_recipes(
+            mem, recipe_array, recipe_total, profile
+        )
+        salvage = self._read_salvage(
+            mem, salvage_array, salvage_total, profile
+        )
+        return (
+            recipe_capacity,
+            recipe_total,
+            recipes,
+            salvage_capacity,
+            salvage_total,
+            salvage,
+        )
+
     def read(self, process: GameProcessInfo | int) -> MemoryInventorySnapshot:
         pid = process.pid if isinstance(process, GameProcessInfo) else int(process)
         title = process.window_title if isinstance(process, GameProcessInfo) else ""
+        recovery_result = None
 
         with ProcessMemory(pid) as mem:
+            # Root resolution is authoritative and is never guessed by this recovery
+            # layer. If identity -> roster -> Entity -> Character fails, the exception
+            # leaves this method before any inventory recovery is attempted.
             context = _resolve_memory_context(
                 mem, self.profile_manager, require_server=False
             )
             profile = context.profile
-            character = context.character_address
-            character_cfg = profile.structure("character")
-            recipe_cfg = character_cfg["recipes"]
-            salvage_cfg = character_cfg["salvage"]
-            validation = profile.validation()
-            max_capacity = as_int(validation["max_inventory_capacity"])
 
-            recipe_array = mem.qword(
-                character + as_int(recipe_cfg["collection_offset"])
-            )
-            recipe_capacity = mem.u32(
-                character + as_int(recipe_cfg["capacity_offset"])
-            )
-            recipe_total = mem.u32(
-                character + as_int(recipe_cfg["count_offset"])
-            )
-            salvage_array = mem.qword(
-                character + as_int(salvage_cfg["collection_offset"])
-            )
-            salvage_capacity = mem.u32(
-                character + as_int(salvage_cfg["capacity_offset"])
-            )
-            salvage_total = mem.u32(
-                character + as_int(salvage_cfg["count_offset"])
-            )
+            try:
+                inventory = self._read_inventory_with_profile(
+                    mem, context, profile
+                )
+            except GameMemoryError as original_exc:
+                if not self.allow_session_recovery:
+                    raise
 
-            self._validate_header(
-                "Recipe inventory",
+                from .memory_recovery import (
+                    MemorySessionRecoveryError,
+                    recover_inventory_profile,
+                )
+                try:
+                    recovery_result = recover_inventory_profile(
+                        mem,
+                        context.character_address,
+                        profile,
+                    )
+                except MemorySessionRecoveryError as recovery_exc:
+                    raise GameMemoryError(
+                        f"{original_exc} Conservative session-only inventory recovery "
+                        f"was attempted but not accepted: {recovery_exc}"
+                    ) from original_exc
+
+                profile = recovery_result.profile
+                try:
+                    inventory = self._read_inventory_with_profile(
+                        mem, context, profile
+                    )
+                except GameMemoryError as retry_exc:
+                    raise GameMemoryError(
+                        f"{original_exc} A bounded session-recovery candidate passed "
+                        f"the multi-sample gate, but the full inventory retry failed: "
+                        f"{retry_exc}"
+                    ) from original_exc
+
+            (
                 recipe_capacity,
                 recipe_total,
-                recipe_array,
-                max_capacity=max_capacity,
-            )
-            self._validate_header(
-                "Salvage inventory",
+                recipes,
                 salvage_capacity,
                 salvage_total,
-                salvage_array,
-                max_capacity=max_capacity,
-            )
-
-            recipes = self._read_recipes(
-                mem, recipe_array, recipe_total, profile
-            )
-            salvage = self._read_salvage(
-                mem, salvage_array, salvage_total, profile
-            )
+                salvage,
+            ) = inventory
 
         # Preserve the 1.15 snapshot API. The legacy field names now contain the
         # semantically validated Entity and Character addresses respectively.
@@ -1054,8 +1124,16 @@ class GameInventoryReader:
             memory_profile_id=profile.profile_id,
             memory_profile_version=profile.profile_version,
             memory_profile_source=profile.source,
+            memory_recovery_applied=bool(
+                recovery_result and recovery_result.applied
+            ),
+            memory_recovery_kinds=(
+                recovery_result.kinds if recovery_result else ()
+            ),
+            memory_recovery_samples=(
+                recovery_result.sample_count if recovery_result else 0
+            ),
         )
-
     def _read_recipes(
         self,
         mem: ProcessMemory,
@@ -1236,8 +1314,13 @@ def validate_memory_profile_pack_live(
         db_path,
         alias_path=alias_path,
         profile_manager=manager,
+        allow_session_recovery=False,
     )
     snapshot = reader.read(int(pid))
+    if snapshot.memory_recovery_applied:
+        raise GameMemoryError(
+            "Candidate memory profile validation attempted to use session recovery."
+        )
     if snapshot.memory_profile_id != context.profile.profile_id:
         raise GameMemoryError(
             "Candidate memory profile changed between semantic validation and inventory read."
@@ -1329,6 +1412,9 @@ def review_from_memory_snapshot(snapshot: MemoryInventorySnapshot) -> dict[str, 
                 "memory_profile_id": snapshot.memory_profile_id,
                 "memory_profile_version": snapshot.memory_profile_version,
                 "memory_profile_source": snapshot.memory_profile_source,
+                "memory_recovery_applied": snapshot.memory_recovery_applied,
+                "memory_recovery_kinds": list(snapshot.memory_recovery_kinds),
+                "memory_recovery_samples": snapshot.memory_recovery_samples,
             },
         },
     }

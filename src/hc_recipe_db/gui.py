@@ -18,6 +18,7 @@ from .version import APP_VERSION
 # FIELD_CRAFTER_MEMORY_PROFILE_UPDATES_V2
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
+# FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
 from .game_memory import (
     GameInventoryReader, GameMemoryError, MemoryNameResolver,
     list_city_of_heroes_processes, review_from_memory_snapshot,
@@ -1530,6 +1531,14 @@ class CraftingHelperGUI:
             f"Inventory read complete from {source_label}: "
             f"{snapshot.recipe_total} recipes and {snapshot.salvage_total} invention salvage."
         )
+        if snapshot.memory_recovery_applied:
+            recovered = " and ".join(snapshot.memory_recovery_kinds) or "inventory"
+            status += (
+                f" Session-only memory layout recovery was validated for {recovered} "
+                f"across {snapshot.memory_recovery_samples} samples. "
+                "Signed memory definitions were not changed. "
+                "Check for memory updates when convenient."
+            )
         if unresolved:
             status += f" {unresolved} internal name mapping(s) remain unresolved; those recipe rows are unchecked."
         if map_note:

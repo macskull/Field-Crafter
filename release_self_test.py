@@ -9,6 +9,7 @@ from hc_recipe_db.game_memory import MemoryNameResolver
 from hc_recipe_db.memory_profiles import MemoryProfileManager
 from hc_recipe_db.memory_profile_updates import load_update_config
 from hc_recipe_db.memory_diagnostics import diagnostic_filename
+from hc_recipe_db.memory_recovery import recovery_policy_summary
 from hc_recipe_db.gui import _auction_search_batches
 
 
@@ -68,6 +69,17 @@ def main() -> int:
     diagnostic_name = diagnostic_filename(1234)
     if not diagnostic_name.startswith("field_crafter_memory_diagnostic_") or not diagnostic_name.endswith("_pid1234.zip"):
         raise RuntimeError(f"Memory diagnostic filename smoke test failed: {diagnostic_name!r}")
+
+    recovery_policy = recovery_policy_summary()
+    if (
+        int(recovery_policy.get("sample_count") or 0) < 3
+        or recovery_policy.get("persistent") is not False
+        or recovery_policy.get("root_locator_recovery") is not False
+        or recovery_policy.get("signed_candidate_validation_may_use_recovery") is not False
+    ):
+        raise RuntimeError(
+            f"Memory session-recovery policy smoke test failed: {recovery_policy!r}"
+        )
 
     batches = _auction_search_batches(
         [

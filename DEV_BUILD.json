@@ -9,7 +9,9 @@
     "Created from the working 1.15 source after memory-profile refactor v1 and signed-update/rollback v2.",
     "The copied factory database/release metadata remains stamped 1.15 until 1.16 release preparation is explicitly run.",
     "This tree is not redistribution-ready merely because the version transition succeeded.",
-    "Memory diagnostics v3.1 adds type-aware recipe/salvage recovery scoring, empty-candidate downgrading, winner/runner-up margins, and diagnostic-only nearest masked code landmarks when an exact root signature has zero hits."
+    "Memory diagnostics v3.1 adds type-aware recipe/salvage recovery scoring, empty-candidate downgrading, winner/runner-up margins, and diagnostic-only nearest masked code landmarks when an exact root signature has zero hits.",
+    "Memory session recovery v4 can temporarily recover Character-local recipe/salvage header drift only after the signed profile root chain has passed semantic validation. It requires a unique strong namespace-compatible winner across three samples, is not persisted, and is disabled during signed profile candidate validation."
   ],
-  "memory_diagnostics_version": "3.1"
+  "memory_diagnostics_version": "3.1",
+  "memory_session_recovery_version": "4"
 }
