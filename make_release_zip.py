@@ -53,6 +53,7 @@ def build_zip(source_dir: Path, output_zip: Path) -> None:
         f"{prefix}src/hc_recipe_db/memory_update_crypto.py",
         f"{prefix}src/hc_recipe_db/memory_diagnostics.py",
         f"{prefix}src/hc_recipe_db/memory_structural_diagnostics.py",
+        f"{prefix}src/hc_recipe_db/memory_structural_recovery.py",
         f"{prefix}src/hc_recipe_db/memory_recovery.py",
         f"{prefix}src/hc_recipe_db/memory_root_recovery.py",
         f"{prefix}data/release_data_summary.json",

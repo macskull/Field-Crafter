@@ -20,6 +20,7 @@ from .version import APP_VERSION
 # FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
 # FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
 # FIELD_CRAFTER_MEMORY_ROOT_RECOVERY_V5
+# FIELD_CRAFTER_MEMORY_STRUCTURAL_RECOVERY_V7
 from .game_memory import (
     GameInventoryReader, GameMemoryError, MemoryNameResolver,
     list_city_of_heroes_processes, review_from_memory_snapshot,
@@ -1540,6 +1541,13 @@ class CraftingHelperGUI:
                 f" Session-only root-locator recovery was validated for "
                 f"{recovered_roots} across "
                 f"{snapshot.memory_root_recovery_samples} samples. "
+                "Signed memory definitions were not changed. "
+                "Check for memory updates when convenient."
+            )
+        if snapshot.memory_structural_recovery_applied:
+            status += (
+                f" Session-only deeper memory-structure recovery was validated "
+                f"across {snapshot.memory_structural_recovery_samples} samples. "
                 "Signed memory definitions were not changed. "
                 "Check for memory updates when convenient."
             )
