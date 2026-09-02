@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "channel": "public-test",
+  "pack_version": "2026.09.01.1",
+  "min_field_crafter_version": "1.16",
+  "pack_url": "https://raw.githubusercontent.com/macskull/Field-Crafter/main/memory/field-crafter-memory-definitions-2026.09.01.1.json",
+  "pack_sha256": "dc240a13c7135317783988e668bd56b51b68a78f2fbbec104b75d3bab01b9db3",
+  "signature": "RQKIUBAcWgylkEsm7HnxI+dzVYT+HopoMdRj27Zn5NAJNgDJWYXKjYQwiDRUJZkQEUPcdql9YK3yr7jO+je1Aw=="
+}
