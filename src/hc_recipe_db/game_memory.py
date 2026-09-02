@@ -29,6 +29,8 @@ from .memory_profiles import (
 # FIELD_CRAFTER_MEMORY_SESSION_RECOVERY_V4
 # FIELD_CRAFTER_MEMORY_ROOT_RECOVERY_V5
 # FIELD_CRAFTER_MEMORY_STALE_EMPTY_GUARD_V5_2
+# FIELD_CRAFTER_MEMORY_STRUCTURAL_RECOVERY_V7
+# FIELD_CRAFTER_MEMORY_STRUCTURAL_RECOVERY_V7_1
 # Memory locations/structure offsets are now declarative and profile-driven.
 # Fixed RVAs are intentionally not retained here.
 
@@ -111,6 +113,9 @@ class MemoryInventorySnapshot:
     memory_root_recovery_applied: bool = False
     memory_root_recovery_locators: tuple[str, ...] = field(default_factory=tuple)
     memory_root_recovery_samples: int = 0
+    memory_structural_recovery_applied: bool = False
+    memory_structural_recovery_fields: tuple[str, ...] = field(default_factory=tuple)
+    memory_structural_recovery_samples: int = 0
 
     @property
     def unresolved_recipe_count(self) -> int:
@@ -629,9 +634,24 @@ def list_city_of_heroes_processes() -> list[GameProcessInfo]:
                 if not server:
                     server = selector_recovery.context.server
             except Exception:
-                # Selector labeling remains best-effort. The actual inventory read
-                # has its own fail-closed recovery and diagnostic path.
-                pass
+                try:
+                    from .memory_structural_recovery import (
+                        recover_structural_context,
+                    )
+                    with ProcessMemory(pid) as structural_mem:
+                        selector_structural = recover_structural_context(
+                            structural_mem,
+                            MemoryProfileManager(),
+                            require_server=True,
+                        )
+                    if not character:
+                        character = selector_structural.context.character_name
+                    if not server:
+                        server = selector_structural.context.server
+                except Exception:
+                    # Selector labeling remains best-effort. The actual inventory
+                    # read has its own fail-closed recovery and diagnostic path.
+                    pass
         found.append(
             GameProcessInfo(
                 pid=pid,
@@ -977,6 +997,7 @@ class GameInventoryReader:
         profile_manager: MemoryProfileManager | None = None,
         allow_session_recovery: bool = True,
         allow_root_recovery: bool = True,
+        allow_structural_recovery: bool = True,
     ):
         self.db_path = Path(db_path)
         self.alias_path = Path(alias_path) if alias_path else None
@@ -986,6 +1007,7 @@ class GameInventoryReader:
         )
         self.allow_session_recovery = bool(allow_session_recovery)
         self.allow_root_recovery = bool(allow_root_recovery)
+        self.allow_structural_recovery = bool(allow_structural_recovery)
 
     @staticmethod
     def _validate_header(
@@ -1078,6 +1100,7 @@ class GameInventoryReader:
         title = process.window_title if isinstance(process, GameProcessInfo) else ""
         recovery_result = None
         root_recovery_result = None
+        structural_recovery_result = None
 
         with ProcessMemory(pid) as mem:
             try:
@@ -1085,25 +1108,60 @@ class GameInventoryReader:
                     mem, self.profile_manager, require_server=False
                 )
             except GameMemoryError as original_root_exc:
-                if not self.allow_root_recovery:
-                    raise
+                root_recovery_error = None
 
-                from .memory_root_recovery import (
-                    MemoryRootRecoveryError,
-                    recover_root_context,
-                )
-                try:
-                    root_recovery_result = recover_root_context(
-                        mem,
-                        self.profile_manager,
-                        require_server=False,
+                if self.allow_root_recovery:
+                    from .memory_root_recovery import (
+                        MemoryRootRecoveryError,
+                        recover_root_context,
                     )
-                    context = root_recovery_result.context
-                except MemoryRootRecoveryError as recovery_exc:
-                    raise GameMemoryError(
-                        f"{original_root_exc} Conservative session-only root-locator "
-                        f"recovery was attempted but not accepted: {recovery_exc}"
-                    ) from original_root_exc
+                    try:
+                        root_recovery_result = recover_root_context(
+                            mem,
+                            self.profile_manager,
+                            require_server=False,
+                        )
+                        context = root_recovery_result.context
+                    except MemoryRootRecoveryError as recovery_exc:
+                        root_recovery_error = recovery_exc
+                else:
+                    root_recovery_error = RuntimeError(
+                        "root-locator recovery is disabled"
+                    )
+
+                if root_recovery_result is None:
+                    if not self.allow_structural_recovery:
+                        if self.allow_root_recovery and root_recovery_error is not None:
+                            raise GameMemoryError(
+                                f"{original_root_exc} Conservative session-only root-locator "
+                                f"recovery was attempted but not accepted: "
+                                f"{root_recovery_error}"
+                            ) from original_root_exc
+                        raise
+
+                    from .memory_structural_recovery import (
+                        MemoryStructuralRecoveryError,
+                        recover_structural_context,
+                    )
+                    try:
+                        structural_recovery_result = recover_structural_context(
+                            mem,
+                            self.profile_manager,
+                            require_server=False,
+                        )
+                        context = structural_recovery_result.context
+                    except MemoryStructuralRecoveryError as structural_exc:
+                        root_detail = (
+                            f" Root-locator recovery also failed: "
+                            f"{root_recovery_error}."
+                            if root_recovery_error is not None
+                            else ""
+                        )
+                        raise GameMemoryError(
+                            f"{original_root_exc}{root_detail} Conservative "
+                            f"session-only structural recovery was attempted but "
+                            f"not accepted: {structural_exc}"
+                        ) from original_root_exc
 
             profile = context.profile
 
@@ -1112,36 +1170,70 @@ class GameInventoryReader:
                     mem, context, profile
                 )
             except GameMemoryError as original_exc:
-                if not self.allow_session_recovery:
-                    raise
+                session_failure = None
 
-                from .memory_recovery import (
-                    MemorySessionRecoveryError,
-                    recover_inventory_profile,
-                )
-                try:
-                    recovery_result = recover_inventory_profile(
-                        mem,
-                        context.character_address,
-                        profile,
+                if self.allow_session_recovery:
+                    from .memory_recovery import (
+                        MemorySessionRecoveryError,
+                        recover_inventory_profile,
                     )
-                except MemorySessionRecoveryError as recovery_exc:
-                    raise GameMemoryError(
-                        f"{original_exc} Conservative session-only inventory recovery "
-                        f"was attempted but not accepted: {recovery_exc}"
-                    ) from original_exc
+                    try:
+                        recovery_result = recover_inventory_profile(
+                            mem,
+                            context.character_address,
+                            profile,
+                        )
+                        profile = recovery_result.profile
+                        inventory = self._read_inventory_with_profile(
+                            mem, context, profile
+                        )
+                    except (
+                        MemorySessionRecoveryError,
+                        GameMemoryError,
+                    ) as recovery_exc:
+                        session_failure = recovery_exc
+                        recovery_result = None
 
-                profile = recovery_result.profile
-                try:
-                    inventory = self._read_inventory_with_profile(
-                        mem, context, profile
+                if recovery_result is None:
+                    if not self.allow_structural_recovery:
+                        if session_failure is not None:
+                            raise GameMemoryError(
+                                f"{original_exc} Conservative session-only inventory "
+                                f"recovery was attempted but not accepted: "
+                                f"{session_failure}"
+                            ) from original_exc
+                        raise
+
+                    from .memory_structural_recovery import (
+                        MemoryStructuralRecoveryError,
+                        recover_structural_context,
                     )
-                except GameMemoryError as retry_exc:
-                    raise GameMemoryError(
-                        f"{original_exc} A bounded session-recovery candidate passed "
-                        f"the multi-sample gate, but the full inventory retry failed: "
-                        f"{retry_exc}"
-                    ) from original_exc
+                    try:
+                        structural_recovery_result = recover_structural_context(
+                            mem,
+                            self.profile_manager,
+                            require_server=False,
+                        )
+                        context = structural_recovery_result.context
+                        profile = structural_recovery_result.profile
+                        inventory = self._read_inventory_with_profile(
+                            mem, context, profile
+                        )
+                    except (
+                        MemoryStructuralRecoveryError,
+                        GameMemoryError,
+                    ) as structural_exc:
+                        session_detail = (
+                            f" Narrow inventory recovery also failed: "
+                            f"{session_failure}."
+                            if session_failure is not None
+                            else ""
+                        )
+                        raise GameMemoryError(
+                            f"{original_exc}{session_detail} Conservative "
+                            f"session-only structural recovery was attempted but "
+                            f"not accepted: {structural_exc}"
+                        ) from original_exc
 
             # A moved collection can leave the old signed/current header as
             # pointer=0/capacity=0/total=0. Structurally that is a valid genuinely
@@ -1196,6 +1288,46 @@ class GameInventoryReader:
                             "but the full production retry failed: "
                             f"{retry_exc}"
                         ) from retry_exc
+                elif (
+                    self.allow_structural_recovery
+                    and structural_recovery_result is None
+                ):
+                    from .memory_structural_recovery import (
+                        MemoryStructuralRecoveryError,
+                        MemoryStructuralRecoveryNotNeeded,
+                        recover_structural_context,
+                    )
+                    try:
+                        zero_structural_recovery = recover_structural_context(
+                            mem,
+                            self.profile_manager,
+                            require_server=False,
+                        )
+                    except MemoryStructuralRecoveryNotNeeded:
+                        zero_structural_recovery = None
+                    except MemoryStructuralRecoveryError as structural_exc:
+                        raise GameMemoryError(
+                            "An inventory header was empty and narrow stale-empty "
+                            "recovery found no safe moved collection, while deeper "
+                            "structural recovery was also unsafe: "
+                            f"{structural_exc}"
+                        ) from structural_exc
+
+                    if zero_structural_recovery is not None:
+                        structural_recovery_result = zero_structural_recovery
+                        context = structural_recovery_result.context
+                        profile = structural_recovery_result.profile
+                        try:
+                            inventory = self._read_inventory_with_profile(
+                                mem, context, profile
+                            )
+                        except GameMemoryError as retry_exc:
+                            raise GameMemoryError(
+                                "Structural recovery passed the three-sample gate "
+                                "after a stale-empty inventory result, but the full "
+                                "production retry failed: "
+                                f"{retry_exc}"
+                            ) from retry_exc
 
             (
                 recipe_capacity,
@@ -1232,15 +1364,43 @@ class GameInventoryReader:
                 recovery_result.sample_count if recovery_result else 0
             ),
             memory_root_recovery_applied=bool(
-                root_recovery_result and root_recovery_result.applied
+                (root_recovery_result and root_recovery_result.applied)
+                or (
+                    structural_recovery_result
+                    and structural_recovery_result.recovered_root_locators
+                )
             ),
             memory_root_recovery_locators=(
                 root_recovery_result.recovered_locators
-                if root_recovery_result else ()
+                if root_recovery_result
+                else (
+                    structural_recovery_result.recovered_root_locators
+                    if structural_recovery_result else ()
+                )
             ),
             memory_root_recovery_samples=(
                 root_recovery_result.sample_count
-                if root_recovery_result else 0
+                if root_recovery_result
+                else (
+                    structural_recovery_result.sample_count
+                    if (
+                        structural_recovery_result
+                        and structural_recovery_result.recovered_root_locators
+                    )
+                    else 0
+                )
+            ),
+            memory_structural_recovery_applied=bool(
+                structural_recovery_result
+                and structural_recovery_result.applied
+            ),
+            memory_structural_recovery_fields=(
+                structural_recovery_result.recovered_fields
+                if structural_recovery_result else ()
+            ),
+            memory_structural_recovery_samples=(
+                structural_recovery_result.sample_count
+                if structural_recovery_result else 0
             ),
         )
     def _read_recipes(
@@ -1425,6 +1585,7 @@ def validate_memory_profile_pack_live(
         profile_manager=manager,
         allow_session_recovery=False,
         allow_root_recovery=False,
+        allow_structural_recovery=False,
     )
     snapshot = reader.read(int(pid))
     if snapshot.memory_recovery_applied:
@@ -1434,6 +1595,10 @@ def validate_memory_profile_pack_live(
     if snapshot.memory_root_recovery_applied:
         raise GameMemoryError(
             "Candidate memory profile validation attempted to use root recovery."
+        )
+    if snapshot.memory_structural_recovery_applied:
+        raise GameMemoryError(
+            "Candidate memory profile validation attempted to use structural recovery."
         )
     if snapshot.memory_profile_id != context.profile.profile_id:
         raise GameMemoryError(
@@ -1532,6 +1697,9 @@ def review_from_memory_snapshot(snapshot: MemoryInventorySnapshot) -> dict[str, 
                 "memory_root_recovery_applied": snapshot.memory_root_recovery_applied,
                 "memory_root_recovery_locators": list(snapshot.memory_root_recovery_locators),
                 "memory_root_recovery_samples": snapshot.memory_root_recovery_samples,
+                "memory_structural_recovery_applied": snapshot.memory_structural_recovery_applied,
+                "memory_structural_recovery_fields": list(snapshot.memory_structural_recovery_fields),
+                "memory_structural_recovery_samples": snapshot.memory_structural_recovery_samples,
             },
         },
     }

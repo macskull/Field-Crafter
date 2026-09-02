@@ -14,12 +14,21 @@
     "Memory root recovery v5 can temporarily recover small fixed-byte drift in identity, selected-server, and roster code signatures. It requires a unique best nearest masked landmark, proves identity/roster/Entity name agreement and Character vitals across three samples, is never persisted, and is disabled during signed profile candidate validation.",
     "Integrated recovery self-test v5.1 exercises the actual GameInventoryReader.read path with simultaneous in-memory drift of all three root signatures and both recipe/salvage Character header groups. It proves exact root and exact inventory failure first, then requires v5 root recovery followed by v4 inventory recovery, with no persistent memory-definition changes.",
     "Stale-empty inventory guard v5.2 closes a recovery gap discovered by the integrated v5.1 test: a moved recipe/salvage collection can leave the old header all-zero, which is structurally indistinguishable from a legitimate empty inventory. Zero totals now trigger only a bounded type-aware proof scan; genuine empty inventories remain valid, while a strong moved collection enters the existing three-sample v4 recovery gate.",
-    "Structural-drift diagnostics v6 add bounded observational scans for roster record name/Entity fields, Entity name/Character fields, a common Character vitals shift, and recipe/salvage entry Definition/quantity/internal-name/recipe-level fields. These candidates are diagnostic only, never auto-adopted, and never persisted."
+    "Structural-drift diagnostics v6 add bounded observational scans for roster record name/Entity fields, Entity name/Character fields, a common Character vitals shift, and recipe/salvage entry Definition/quantity/internal-name/recipe-level fields. These candidates are diagnostic only, never auto-adopted, and never persisted.",
+    "Structural recovery qualification harness v6.1 adds no production recovery behavior. It runs baseline, independent structural-family drift, combined structural drift, root+structural, inventory+structural, and root+inventory+structural scenarios across three fresh samples, recording known-good candidate retention, ranking, runner-up margins, clear-winner status, and cross-sample stability.",
+    "Structural diagnostics v6.2 anchor recipe/salvage entry-layout inspection through the existing type-aware inventory-header scan. A diagnostic entry anchor now requires a clear strong namespace/quantity-valid winner rather than the nearest merely-plausible raw header.",
+    "Memory validation tools now write full JSON result artifacts to %LOCALAPPDATA%\\FieldCrafter\\diagnostics and print only the result path. This convention is used by the v5.2 integrated test, v6 structural test, v6.1 qualification harness, and v6.2 qualification harness.",
+    "Structural diagnostics v6.3 remove the circular dependency between inventory-header validation and entry-layout validation. If the v4/v5.2 type-aware header scan cannot prove a header because Entry/Definition offsets drifted, diagnostics jointly score bounded hypotheses containing the Character header, Entry quantity, Entry Definition pointer, Definition internal-name pointer, and recipe level. Complete semantic hypotheses are diagnostic/qualification-only and are never auto-adopted or persisted.",
+    "Structural session recovery v7 promotes the qualified v6.3 deeper-layout evidence into a conservative, non-persistent production fallback. It recovers roster/Entity/Character/vitals/inventory-entry layout only as one coherent three-sample semantic structure, retries the normal production inventory reader, and never changes signed memory definitions. Signed candidate-profile validation explicitly disables v4, v5, and v7 recovery.",
+    "Structural recovery v7.1 calibrates the qualified pointer margins by field: roster->Entity remains >=5 while Entity->Character uses >=4, matching the live integrated v7 observation. Exact trusted-name agreement, clear-winner status, three-sample exact-layout stability, >=5 entry-pair/joint-hypothesis margins, and the full production retry remain unchanged. The v7.1 live harness also fixes the prior entry_layout_only scenario so it moves only Entry/Definition fields rather than the entire deeper object graph."
   ],
   "memory_diagnostics_version": "3.1",
   "memory_session_recovery_version": "4",
   "memory_root_recovery_version": "5",
   "memory_integrated_recovery_test_version": "5.1",
   "memory_stale_empty_guard_version": "5.2",
-  "memory_structural_diagnostics_version": "6"
+  "memory_structural_diagnostics_version": "6.3",
+  "memory_structural_qualification_version": "6.3",
+  "memory_test_json_output_version": "6.2",
+  "memory_structural_recovery_version": "7.1"
 }

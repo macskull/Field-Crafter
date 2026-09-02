@@ -10,6 +10,7 @@ from hc_recipe_db.memory_profiles import MemoryProfileManager
 from hc_recipe_db.memory_profile_updates import load_update_config
 from hc_recipe_db.memory_diagnostics import diagnostic_filename
 from hc_recipe_db.memory_structural_diagnostics import structural_diagnostic_policy_summary
+from hc_recipe_db.memory_structural_recovery import structural_recovery_policy_summary
 from hc_recipe_db.memory_recovery import recovery_policy_summary
 from hc_recipe_db.memory_root_recovery import root_recovery_policy_summary
 from hc_recipe_db.gui import _auction_search_batches
@@ -72,6 +73,31 @@ def main() -> int:
     if not diagnostic_name.startswith("field_crafter_memory_diagnostic_") or not diagnostic_name.endswith("_pid1234.zip"):
         raise RuntimeError(f"Memory diagnostic filename smoke test failed: {diagnostic_name!r}")
 
+    structural_recovery_policy = structural_recovery_policy_summary()
+    if (
+        int(structural_recovery_policy.get("sample_count") or 0) < 3
+        or float(structural_recovery_policy.get("minimum_roster_entity_score_margin") or 0) < 5.0
+        or float(structural_recovery_policy.get("minimum_entity_character_score_margin") or 0) < 4.0
+        or float(structural_recovery_policy.get("minimum_entry_pair_score_margin") or 0) < 5.0
+        or float(structural_recovery_policy.get("minimum_joint_hypothesis_margin") or 0) < 5.0
+        or structural_recovery_policy.get("identity_name_exact_match_required") is not True
+        or structural_recovery_policy.get("roster_name_exact_match_required") is not True
+        or structural_recovery_policy.get("entity_name_exact_match_required") is not True
+        or structural_recovery_policy.get("vitals_common_shift_required") is not True
+        or structural_recovery_policy.get("inventory_header_total_reproduction_required") is not True
+        or structural_recovery_policy.get("recipe_namespace_proof_required") is not True
+        or structural_recovery_policy.get("salvage_namespace_proof_required") is not True
+        or structural_recovery_policy.get("recipe_level_suffix_proof_required") is not True
+        or structural_recovery_policy.get("three_sample_exact_layout_stability_required") is not True
+        or structural_recovery_policy.get("full_production_inventory_retry_required") is not True
+        or structural_recovery_policy.get("persistent") is not False
+        or structural_recovery_policy.get("signed_candidate_validation_may_use_recovery") is not False
+    ):
+        raise RuntimeError(
+            f"Memory structural-recovery policy smoke test failed: "
+            f"{structural_recovery_policy!r}"
+        )
+
     structural_policy = structural_diagnostic_policy_summary()
     if (
         structural_policy.get("diagnostic_only") is not True
@@ -80,6 +106,10 @@ def main() -> int:
         or structural_policy.get("entry_layout_auto_recovery") is not False
         or structural_policy.get("entity_character_layout_auto_recovery") is not False
         or structural_policy.get("vitals_layout_auto_recovery") is not False
+        or structural_policy.get("entry_anchor_uses_type_aware_inventory_scan") is not True
+        or structural_policy.get("entry_anchor_requires_clear_strong_winner") is not True
+        or structural_policy.get("entry_anchor_joint_header_entry_hypothesis_fallback") is not True
+        or structural_policy.get("joint_hypothesis_auto_recovery") is not False
     ):
         raise RuntimeError(
             f"Memory structural-diagnostic policy smoke test failed: "
