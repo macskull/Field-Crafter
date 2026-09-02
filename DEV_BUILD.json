@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "app_version": "1.16-dev",
+  "target_release_version": "1.16",
+  "development_tree": true,
+  "created_from": "Field_Crafter_1.15_Build_Source",
+  "baseline_memory_profile_pack": "2026.09.01.1",
+  "notes": [
+    "Created from the working 1.15 source after memory-profile refactor v1 and signed-update/rollback v2.",
+    "The copied factory database/release metadata remains stamped 1.15 until 1.16 release preparation is explicitly run.",
+    "This tree is not redistribution-ready merely because the version transition succeeded.",
+    "Memory diagnostics v3.1 adds type-aware recipe/salvage recovery scoring, empty-candidate downgrading, winner/runner-up margins, and diagnostic-only nearest masked code landmarks when an exact root signature has zero hits."
+  ],
+  "memory_diagnostics_version": "3.1"
+}

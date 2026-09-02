@@ -6,6 +6,9 @@ from pathlib import Path
 
 from hc_recipe_db.calculator import CraftingCalculator, RecipeSelection, parse_capacity_text
 from hc_recipe_db.game_memory import MemoryNameResolver
+from hc_recipe_db.memory_profiles import MemoryProfileManager
+from hc_recipe_db.memory_profile_updates import load_update_config
+from hc_recipe_db.memory_diagnostics import diagnostic_filename
 from hc_recipe_db.gui import _auction_search_batches
 
 
@@ -51,6 +54,20 @@ def main() -> int:
         panacea, source = resolver.resolve_recipe("Panacea_D_50")
         if panacea != "Panacea: Healing/Absorb/Endurance/Recharge":
             raise RuntimeError(f"Panacea A-F mapping smoke test failed: {panacea!r} ({source})")
+
+    manager = MemoryProfileManager(
+        user_pack_path=ROOT / ".release_self_test_no_user_memory_profile.json"
+    )
+    candidates = manager.candidates()
+    if not candidates:
+        raise RuntimeError("Bundled memory profile pack contains no candidates.")
+    config = load_update_config()
+    if not config.get("manifest_url") or not config.get("public_key_ed25519"):
+        raise RuntimeError("Memory update configuration is incomplete.")
+
+    diagnostic_name = diagnostic_filename(1234)
+    if not diagnostic_name.startswith("field_crafter_memory_diagnostic_") or not diagnostic_name.endswith("_pid1234.zip"):
+        raise RuntimeError(f"Memory diagnostic filename smoke test failed: {diagnostic_name!r}")
 
     batches = _auction_search_batches(
         [

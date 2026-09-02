@@ -14,15 +14,25 @@ from pathlib import Path
 from typing import Any
 
 from .calculator import CalculationError, format_text_result
+from .version import APP_VERSION
+# FIELD_CRAFTER_MEMORY_PROFILE_UPDATES_V2
+# FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3
+# FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
 from .game_memory import (
     GameInventoryReader, GameMemoryError, MemoryNameResolver,
     list_city_of_heroes_processes, review_from_memory_snapshot,
     refresh_memory_recipe_aliases,
 )
+from .memory_diagnostics import create_memory_diagnostic_zip, default_diagnostic_dir
 from .recognition import calculate_review, load_review, scan_screenshots
 from .updates import (
     UpdateCandidate, accept_update, build_update_candidate, database_info,
     format_update_diff, reject_update,
+)
+from .memory_profile_updates import (
+    check_for_memory_profile_update, install_memory_profile_update,
+    memory_profile_status, reject_memory_profile_update,
+    rollback_memory_profile_update,
 )
 
 
@@ -165,12 +175,14 @@ class CraftingHelperGUI:
         self._app_state_dir = self._determine_app_state_dir()
         self._window_state_path = self._app_state_dir / "window_state.json"
         self._memory_alias_path = self._app_state_dir / "memory_recipe_aliases.json"
+        self._memory_update_candidate = None
+        self._last_memory_diagnostic_path = None
         self._result_sort_state: dict[tuple[int, str], bool] = {}
         self._auction_batches: list[str] = []
         self._update_cancel_event: threading.Event | None = None
         self._update_started_at: float | None = None
 
-        self.root.title("Field Crafter 1.15")
+        self.root.title(f"Field Crafter {APP_VERSION}")
         self.root.minsize(1040, 600)
         try:
             # The side-by-side Review & Edit layout no longer needs the old tall
@@ -187,6 +199,7 @@ class CraftingHelperGUI:
         self._build_ui()
         self._update_input_lists()
         self._refresh_database_info()
+        self._refresh_memory_profile_info()
         self._set_status("Read inventory from a running City of Heroes client, or use screenshots/OCR as a fallback.")
         self.root.after(150, self._refresh_game_processes)
 
@@ -813,6 +826,20 @@ class CraftingHelperGUI:
             button_row, text="Refresh game memory recipe map", command=self._start_memory_map_refresh
         )
         self.memory_map_button.pack(side="left", padx=(8, 0))
+        self.memory_definitions_button = ttk.Button(
+            button_row, text="Check for memory updates", command=self._start_memory_definition_update
+        )
+        self.memory_definitions_button.pack(side="left", padx=(8, 0))
+        self.memory_rollback_button = ttk.Button(
+            button_row, text="Roll back memory update",
+            command=self._start_memory_definition_rollback, state="disabled"
+        )
+        self.memory_rollback_button.pack(side="left", padx=(8, 0))
+        self.memory_diagnostic_button = ttk.Button(
+            button_row, text="Create memory diagnostic",
+            command=self._start_memory_diagnostic,
+        )
+        self.memory_diagnostic_button.pack(side="left", padx=(8, 0))
         ttk.Label(
             controls,
             text=(
@@ -821,6 +848,11 @@ class CraftingHelperGUI:
             ),
             wraplength=1050, justify="left",
         ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.memory_profile_status_var = tk.StringVar(value="Memory definitions: loading...")
+        ttk.Label(
+            controls, textvariable=self.memory_profile_status_var,
+            wraplength=1050, justify="left",
+        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
 
         log_frame = ttk.LabelFrame(tab, text="Last update scan", padding=5)
         self.update_log_frame = log_frame
@@ -892,6 +924,282 @@ class CraftingHelperGUI:
             self.update_text.insert("end", text)
         self.update_text.see("end")
         self.update_text.configure(state="disabled")
+
+
+    def _refresh_memory_profile_info(self) -> None:
+        if not hasattr(self, "memory_profile_status_var"):
+            return
+        try:
+            status = memory_profile_status()
+            text = f"Memory definitions: {status.active_pack_version} ({status.active_source})"
+            if status.previous_pack_version:
+                text += f" • previous: {status.previous_pack_version}"
+            if status.warning:
+                text += f" • warning: {status.warning}"
+            self.memory_profile_status_var.set(text)
+            if hasattr(self, "memory_rollback_button"):
+                self.memory_rollback_button.configure(
+                    state="normal" if status.rollback_available else "disabled"
+                )
+        except Exception as exc:
+            self.memory_profile_status_var.set(f"Memory definitions: unavailable ({exc})")
+            if hasattr(self, "memory_rollback_button"):
+                self.memory_rollback_button.configure(state="disabled")
+
+    def _selected_memory_process(self):
+        label = self.memory_process_var.get().strip()
+        process = self._game_process_by_label.get(label)
+        if process is None:
+            self._refresh_game_processes()
+            process = self._game_process_by_label.get(self.memory_process_var.get().strip())
+        return process
+
+    def _set_memory_definition_buttons(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        if hasattr(self, "memory_definitions_button"):
+            self.memory_definitions_button.configure(state=state)
+        if enabled:
+            self._refresh_memory_profile_info()
+        elif hasattr(self, "memory_rollback_button"):
+            self.memory_rollback_button.configure(state="disabled")
+
+    def _start_memory_definition_update(self) -> None:
+        process = self._selected_memory_process()
+        if process is None:
+            self._show_error(
+                "Choose a running City of Heroes character first. "
+                "Downloaded memory definitions are live-validated against the selected client before installation."
+            )
+            return
+        self._set_memory_definition_buttons(False)
+        self._show_progress()
+        self._write_update_log(
+            "Checking GitHub for signed Field Crafter memory definitions...\n"
+            "Any downloaded candidate must pass signature, SHA-256, schema, compatibility, "
+            "and live game-memory validation before it can become active."
+        )
+        self._set_status("Checking for signed memory-definition updates...")
+
+        def worker():
+            try:
+                result = check_for_memory_profile_update()
+                self.root.after(
+                    0,
+                    lambda r=result, p=process: self._memory_definition_check_complete(r, p),
+                )
+            except Exception as exc:
+                self.root.after(0, lambda d=str(exc): self._memory_definition_update_failed(d))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _memory_definition_check_complete(self, result, process) -> None:
+        self._hide_progress()
+        if not result.update_available or result.candidate is None:
+            self._set_memory_definition_buttons(True)
+            self._append_update_log(result.message)
+            self._set_status(result.message)
+            from tkinter import messagebox
+            messagebox.showinfo("Memory Definitions", result.message, parent=self.root)
+            return
+
+        self._memory_update_candidate = result.candidate
+        self._append_update_log(
+            f"Signed memory definitions {result.latest_pack_version} are available. "
+            f"Current version: {result.current_pack_version}."
+        )
+        from tkinter import messagebox
+        accepted = messagebox.askyesno(
+            "Memory Definition Update",
+            (
+                f"Memory definitions {result.latest_pack_version} are available.\n\n"
+                "Field Crafter has verified the signed manifest, downloaded pack SHA-256, "
+                "JSON schema, and application compatibility.\n\n"
+                f"The final step will validate the candidate against {process.label} before installation.\n\n"
+                "Install this update?"
+            ),
+            parent=self.root,
+        )
+        if not accepted:
+            reject_memory_profile_update(self._memory_update_candidate)
+            self._memory_update_candidate = None
+            self._set_memory_definition_buttons(True)
+            self._set_status("Memory-definition update declined; current definitions unchanged.")
+            self._append_update_log("Update declined. Current memory definitions were not changed.")
+            return
+
+        self._show_progress()
+        self._set_status(
+            f"Live-validating memory definitions {result.latest_pack_version} against {process.label}..."
+        )
+
+        def worker():
+            try:
+                candidate = self._memory_update_candidate
+                if candidate is None:
+                    raise RuntimeError("Memory update candidate was lost before installation.")
+                live = install_memory_profile_update(
+                    candidate,
+                    db_path=self.db_path,
+                    pid=process.pid,
+                    alias_path=self._memory_alias_path,
+                )
+                self.root.after(
+                    0,
+                    lambda r=result, l=live: self._memory_definition_install_complete(r, l),
+                )
+            except Exception as exc:
+                self.root.after(0, lambda d=str(exc): self._memory_definition_update_failed(d))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _memory_definition_install_complete(self, result, live) -> None:
+        self._memory_update_candidate = None
+        self._hide_progress()
+        self._set_memory_definition_buttons(True)
+        profile = live.get("profile_version") or result.latest_pack_version
+        status = (
+            f"Memory definitions {profile} installed after live validation. "
+            f"Character: {live.get('character_name') or 'unknown'}; "
+            f"server: {live.get('server') or 'unknown'}; "
+            f"recipes: {live.get('recipe_total', 0)}; "
+            f"salvage: {live.get('salvage_total', 0)}."
+        )
+        self._append_update_log(status)
+        self._set_status(status)
+        from tkinter import messagebox
+        messagebox.showinfo("Memory Definitions Updated", status, parent=self.root)
+
+    def _memory_definition_update_failed(self, detail: str) -> None:
+        candidate = getattr(self, "_memory_update_candidate", None)
+        if candidate is not None:
+            reject_memory_profile_update(candidate)
+            self._memory_update_candidate = None
+        self._hide_progress()
+        self._set_memory_definition_buttons(True)
+        self._append_update_log(
+            "Memory-definition update failed. Current definitions were left unchanged.\n" + detail
+        )
+        self._set_status("Memory-definition update failed; current definitions unchanged.")
+        self._show_error(detail)
+
+    def _start_memory_definition_rollback(self) -> None:
+        process = self._selected_memory_process()
+        if process is None:
+            self._show_error(
+                "Choose a running City of Heroes character first so the rollback target can be live-validated when required."
+            )
+            return
+        from tkinter import messagebox
+        if not messagebox.askyesno(
+            "Roll Back Memory Definitions",
+            (
+                "Switch to the previous memory-definition state?\n\n"
+                "If the previous state is another downloaded pack, Field Crafter will "
+                "live-validate it before switching. If the previous state is the bundled "
+                "profile, the downloaded override will be disabled."
+            ),
+            parent=self.root,
+        ):
+            return
+
+        self._set_memory_definition_buttons(False)
+        self._show_progress()
+        self._set_status("Rolling back memory definitions...")
+
+        def worker():
+            try:
+                result = rollback_memory_profile_update(
+                    db_path=self.db_path,
+                    pid=process.pid,
+                    alias_path=self._memory_alias_path,
+                )
+                self.root.after(0, lambda r=result: self._memory_definition_rollback_complete(r))
+            except Exception as exc:
+                self.root.after(0, lambda d=str(exc): self._memory_definition_update_failed(d))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _memory_definition_rollback_complete(self, result) -> None:
+        self._hide_progress()
+        self._set_memory_definition_buttons(True)
+        status = (
+            f"Memory definitions switched to {result.get('active_pack_version', 'unknown')} "
+            f"({result.get('active_source', 'unknown')})."
+        )
+        self._append_update_log(status)
+        self._set_status(status)
+        from tkinter import messagebox
+        messagebox.showinfo("Memory Definitions", status, parent=self.root)
+
+    def _set_memory_diagnostic_button(self, enabled: bool) -> None:
+        if hasattr(self, "memory_diagnostic_button"):
+            self.memory_diagnostic_button.configure(
+                state="normal" if enabled else "disabled"
+            )
+
+    def _start_memory_diagnostic(self) -> None:
+        process = self._selected_memory_process()
+        if process is None:
+            self._show_error(
+                "Choose a running City of Heroes character first. "
+                "Use Refresh if the client was opened after Field Crafter."
+            )
+            return
+        self._set_memory_diagnostic_button(False)
+        self._show_progress()
+        self._set_status(
+            f"Creating a compact memory diagnostic for {process.label}..."
+        )
+        self._write_update_log(
+            f"Creating memory diagnostic for {process.label}. "
+            "No raw process-memory dump will be included."
+        )
+
+        def worker():
+            try:
+                path = create_memory_diagnostic_zip(process)
+                self.root.after(
+                    0, lambda p=path: self._memory_diagnostic_complete(p)
+                )
+            except Exception as exc:
+                self.root.after(
+                    0, lambda d=str(exc): self._memory_diagnostic_failed(d)
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _memory_diagnostic_complete(self, path) -> None:
+        self._hide_progress()
+        self._set_memory_diagnostic_button(True)
+        self._last_memory_diagnostic_path = Path(path)
+        status = f"Memory diagnostic created: {path}"
+        self._append_update_log(status)
+        self._set_status(status)
+        from tkinter import messagebox
+        open_folder = messagebox.askyesno(
+            "Memory Diagnostic Created",
+            (
+                "Field Crafter created a compact memory diagnostic ZIP.\n\n"
+                f"{path}\n\n"
+                "It contains signature/semantic observations and bounded recovery "
+                "candidates, but no raw process-memory dump.\n\n"
+                "Open the diagnostics folder?"
+            ),
+            parent=self.root,
+        )
+        if open_folder:
+            try:
+                if os.name == "nt":
+                    os.startfile(str(Path(path).parent))
+            except Exception:
+                pass
+
+    def _memory_diagnostic_failed(self, detail: str) -> None:
+        self._hide_progress()
+        self._set_memory_diagnostic_button(True)
+        self._append_update_log("Memory diagnostic failed.\n" + detail)
+        self._set_status("Memory diagnostic creation failed.")
+        self._show_error(detail)
 
     def _start_memory_map_refresh(self) -> None:
         self.memory_map_button.configure(state="disabled")
@@ -1182,8 +1490,28 @@ class CraftingHelperGUI:
                 review = review_from_memory_snapshot(snapshot)
                 self.root.after(0, lambda: self._memory_read_complete(review, snapshot, map_note))
             except Exception as exc:
+                failure_message = str(exc)
                 detail = f"{exc}\n\n{traceback.format_exc()}"
-                self.root.after(0, lambda: self._memory_read_failed(detail))
+                self.root.after(
+                    0,
+                    lambda: self.memory_status_var.set(
+                        "Memory read failed. Creating a compact diagnostic package..."
+                    ),
+                )
+                diagnostic_path = None
+                diagnostic_error = ""
+                try:
+                    diagnostic_path = create_memory_diagnostic_zip(
+                        process,
+                        failure_detail=failure_message,
+                    )
+                except Exception as diagnostic_exc:
+                    diagnostic_error = str(diagnostic_exc)
+                self.root.after(
+                    0,
+                    lambda d=detail, p=diagnostic_path, e=diagnostic_error:
+                        self._memory_read_failed(d, p, e),
+                )
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1196,6 +1524,7 @@ class CraftingHelperGUI:
         unresolved = snapshot.unresolved_recipe_count + snapshot.unresolved_salvage_count
         self.memory_recipe_count_var.set(f"Recipes: {snapshot.recipe_total} / {snapshot.recipe_capacity}")
         self.memory_salvage_count_var.set(f"Salvage: {snapshot.salvage_total} / {snapshot.salvage_capacity}")
+        self._refresh_memory_profile_info()
         source_label = self.memory_process_var.get().rsplit(" (PID ", 1)[0] or snapshot.window_title or "running game"
         status = (
             f"Inventory read complete from {source_label}: "
@@ -1209,12 +1538,36 @@ class CraftingHelperGUI:
         self._set_status(status)
         self.notebook.select(self.review_tab)
 
-    def _memory_read_failed(self, detail: str) -> None:
+    def _memory_read_failed(
+        self,
+        detail: str,
+        diagnostic_path=None,
+        diagnostic_error: str = "",
+    ) -> None:
         self._hide_progress()
         self.memory_button.configure(state="normal")
-        self.memory_status_var.set("Memory read failed. Screenshots/OCR remain available as a fallback.")
-        self._set_status("Game-memory inventory read failed; no partial memory data was imported.")
-        self._show_error(detail)
+        self._last_memory_diagnostic_path = (
+            Path(diagnostic_path) if diagnostic_path else None
+        )
+        status = "Memory read failed. Screenshots/OCR remain available as a fallback."
+        if diagnostic_path:
+            status += f" Diagnostic saved: {diagnostic_path}"
+        elif diagnostic_error:
+            status += " Diagnostic creation also failed."
+        self.memory_status_var.set(status)
+        self._set_status(
+            "Game-memory inventory read failed; no partial memory data was imported."
+        )
+        message = detail
+        if diagnostic_path:
+            message += (
+                "\n\nA compact memory diagnostic was created automatically:\n"
+                f"{diagnostic_path}\n\n"
+                "Upload that ZIP when reporting a post-patch memory-reading failure."
+            )
+        elif diagnostic_error:
+            message += f"\n\nDiagnostic creation failed: {diagnostic_error}"
+        self._show_error(message)
 
     # ---------- screenshot input ----------
 

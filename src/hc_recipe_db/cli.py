@@ -58,6 +58,13 @@ def main() -> None:
     m.add_argument("--aliases", help="Optional JSON file for remembered internal recipe-name mappings")
     m.add_argument("--output", help="Write review JSON to this file instead of stdout")
 
+    md = sub.add_parser(
+        "memory-diagnostic",
+        help="Create a compact post-patch memory diagnostic ZIP from a running City of Heroes client",
+    )
+    md.add_argument("--pid", type=int, help="cityofheroes.exe PID; omit to auto-select when exactly one client is running")
+    md.add_argument("--output-dir", help="Directory for the diagnostic ZIP; defaults to LocalAppData/FieldCrafter/diagnostics")
+
     g = sub.add_parser("gui", help="Launch the desktop inventory review and shopping-list interface")
     g.add_argument("--db", default="data/homecoming_recipes.sqlite")
 
@@ -142,6 +149,26 @@ def main() -> None:
                 print(f"Wrote {args.output}")
             else:
                 print(rendered, end="")
+        elif args.command == "memory-diagnostic":
+            from .game_memory import list_city_of_heroes_processes
+            from .memory_diagnostics import create_memory_diagnostic_zip
+            processes = list_city_of_heroes_processes()
+            if args.pid is None:
+                if not processes:
+                    raise CalculationError("No running cityofheroes.exe clients were found")
+                if len(processes) != 1:
+                    print("Multiple City of Heroes clients are running; rerun with --pid:", file=sys.stderr)
+                    for proc in processes:
+                        print(f"  {proc.label}", file=sys.stderr)
+                    raise SystemExit(2)
+                process = processes[0]
+            else:
+                process = next((x for x in processes if x.pid == args.pid), args.pid)
+            path = create_memory_diagnostic_zip(
+                process,
+                output_dir=args.output_dir,
+            )
+            print(f"Wrote {path}")
         elif args.command == "gui":
             from .gui import launch_gui
             launch_gui(db_path=args.db)

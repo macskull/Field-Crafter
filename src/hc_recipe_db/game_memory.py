@@ -3,9 +3,11 @@ from __future__ import annotations
 import ctypes
 import difflib
 import json
+import math
 import os
 import re
 import sqlite3
+import struct
 import sys
 import time
 from ctypes import wintypes
@@ -14,25 +16,19 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .normalize import canonical_key
+from .version import APP_VERSION
+from .memory_profiles import (
+    MemoryProfile, MemoryProfileError, MemoryProfileManager,
+    as_int, find_signature_offsets,
+)
 
-# Memory layout validated against the current Homecoming client during Field Crafter
-# memory-discovery work. All heap addresses are resolved dynamically on every read.
-OWNER_PTR_OFFSET = 0xBD7C28
-OWNER_TO_INVENTORY = 0xE88
-SALVAGE_ARRAY_OFFSET = 0x1428
-SALVAGE_CAPACITY_OFFSET = 0x1434
-SALVAGE_TOTAL_OFFSET = 0x1438
-RECIPE_ARRAY_OFFSET = 0x1478
-RECIPE_CAPACITY_OFFSET = 0x1484
-RECIPE_TOTAL_OFFSET = 0x1488
-ENTRY_DEFINITION_OFFSET = 0x00
-ENTRY_QUANTITY_OFFSET = 0x08
-DEFINITION_INTERNAL_NAME_OFFSET = 0x08
-RECIPE_DEFINITION_LEVEL_OFFSET = 0x30
-CHARACTER_NAME_OFFSET = 0xA74E01
-LAST_LOGGED_IN_SERVER_OFFSET = 0x16220C8
-SELECTED_SERVER_OFFSET = 0x1622F08
-IDENTITY_STRING_MAX = 64
+# FIELD_CRAFTER_MEMORY_PROFILE_REFACTOR_V1
+# FIELD_CRAFTER_MEMORY_PROFILE_UPDATES_V2
+# FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3
+# FIELD_CRAFTER_MEMORY_DIAGNOSTICS_V3_1
+# Memory locations/structure offsets are now declarative and profile-driven.
+# Fixed RVAs are intentionally not retained here.
+
 
 PROCESS_VM_READ = 0x0010
 PROCESS_QUERY_INFORMATION = 0x0400
@@ -103,6 +99,9 @@ class MemoryInventorySnapshot:
     salvage_capacity: int = 0
     salvage_total: int = 0
     salvage: list[MemorySalvage] = field(default_factory=list)
+    memory_profile_id: str = ""
+    memory_profile_version: str = ""
+    memory_profile_source: str = ""
 
     @property
     def unresolved_recipe_count(self) -> int:
@@ -201,43 +200,385 @@ def _valid_identity_string(value: str, *, max_len: int = 48) -> bool:
     return all(ch.isprintable() and ch not in "\r\n\t" for ch in value)
 
 
-def _read_process_identity(pid: int) -> tuple[str, str]:
-    """Read character/server using the same module-relative fields used by Automaton.
-
-    Server identity is sampled a few times because the selected-server field can be blank
-    briefly during logout/server transitions. This function is only for selector labeling;
-    inventory reads still validate their own live pointers separately.
-    """
+def _module_info(pid: int, module_name: str = "cityofheroes.exe") -> tuple[int, int, str]:
+    kernel32 = _kernel32()
+    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
+    if snap == INVALID_HANDLE_VALUE:
+        raise GameMemoryError(
+            f"Could not enumerate modules for PID {pid} (Windows error {ctypes.get_last_error()})."
+        )
     try:
+        entry = MODULEENTRY32W()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = kernel32.Module32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if str(entry.szModule).casefold() == module_name.casefold():
+                base = ctypes.cast(entry.modBaseAddr, ctypes.c_void_p).value or 0
+                return int(base), int(entry.modBaseSize), str(entry.szExePath)
+            ok = kernel32.Module32NextW(snap, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snap)
+    raise GameMemoryError(f"Could not locate {module_name} module in PID {pid}.")
+
+
+class ProcessMemory:
+    IMAGE_SCN_MEM_EXECUTE = 0x20000000
+
+    def __init__(self, pid: int):
+        _require_windows()
+        self.pid = int(pid)
+        self.kernel32 = _kernel32()
+        self.handle = self.kernel32.OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, self.pid
+        )
+        if not self.handle:
+            raise GameMemoryError(
+                f"Could not open cityofheroes.exe PID {pid} for reading "
+                f"(Windows error {ctypes.get_last_error()})."
+            )
+        self.base, self.module_size, self.module_path = _module_info(self.pid)
+        self._executable_snapshot: list[tuple[int, bytes]] | None = None
+        self._signature_cache: dict[str, list[int]] = {}
+
+    def close(self) -> None:
+        if getattr(self, "handle", None):
+            self.kernel32.CloseHandle(self.handle)
+            self.handle = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
+    def read(self, address: int, size: int) -> bytes:
+        if not address or size <= 0:
+            raise GameMemoryError(
+                f"Invalid memory read request address=0x{address:X} size={size}."
+            )
+        buf = ctypes.create_string_buffer(size)
+        got = ctypes.c_size_t()
+        ok = self.kernel32.ReadProcessMemory(
+            self.handle, ctypes.c_void_p(address), buf, size, ctypes.byref(got)
+        )
+        if not ok or got.value != size:
+            raise GameMemoryError(
+                f"Could not read {size} bytes from PID {self.pid} "
+                f"(Windows error {ctypes.get_last_error()})."
+            )
+        return buf.raw
+
+    def u32(self, address: int) -> int:
+        return int.from_bytes(self.read(address, 4), "little", signed=False)
+
+    def i32(self, address: int) -> int:
+        return int.from_bytes(self.read(address, 4), "little", signed=True)
+
+    def qword(self, address: int) -> int:
+        return int.from_bytes(self.read(address, 8), "little", signed=False)
+
+    def f32(self, address: int) -> float:
+        return float(struct.unpack("<f", self.read(address, 4))[0])
+
+    def cstring(self, address: int, max_len: int = MAX_INTERNAL_STRING) -> str:
+        raw = self.read(address, max_len)
+        raw = raw.split(b"\x00", 1)[0]
+        try:
+            return raw.decode("ascii", errors="strict")
+        except UnicodeDecodeError:
+            return raw.decode("utf-8", errors="replace")
+
+    def _executable_sections(self) -> list[tuple[int, int]]:
+        # Parse the in-memory PE headers and scan only executable sections. This
+        # avoids thousands of page reads across data/BSS while remaining independent
+        # of fixed code RVAs.
+        dos = self.read(self.base, min(0x1000, self.module_size))
+        if len(dos) < 0x40 or dos[:2] != b"MZ":
+            raise GameMemoryError("cityofheroes.exe has an invalid in-memory DOS header.")
+        pe_off = int.from_bytes(dos[0x3C:0x40], "little")
+        nt = self.read(self.base + pe_off, 24)
+        if nt[:4] != b"PE\x00\x00":
+            raise GameMemoryError("cityofheroes.exe has an invalid in-memory PE header.")
+        section_count = int.from_bytes(nt[6:8], "little")
+        optional_size = int.from_bytes(nt[20:22], "little")
+        if section_count <= 0 or section_count > 96:
+            raise GameMemoryError("cityofheroes.exe reports an implausible PE section count.")
+        table = self.read(self.base + pe_off + 24 + optional_size, section_count * 40)
+        out: list[tuple[int, int]] = []
+        for index in range(section_count):
+            row = table[index * 40:(index + 1) * 40]
+            virtual_size = int.from_bytes(row[8:12], "little")
+            virtual_address = int.from_bytes(row[12:16], "little")
+            raw_size = int.from_bytes(row[16:20], "little")
+            characteristics = int.from_bytes(row[36:40], "little")
+            if not (characteristics & self.IMAGE_SCN_MEM_EXECUTE):
+                continue
+            size = max(virtual_size, raw_size)
+            if virtual_address >= self.module_size:
+                continue
+            size = min(size, self.module_size - virtual_address)
+            if size > 0:
+                out.append((virtual_address, size))
+        if not out:
+            raise GameMemoryError("No executable PE sections were found in cityofheroes.exe.")
+        return out
+
+    def executable_snapshot(self) -> list[tuple[int, bytes]]:
+        if self._executable_snapshot is not None:
+            return self._executable_snapshot
+        sections: list[tuple[int, bytes]] = []
+        chunk_size = 1024 * 1024
+        for section_rva, section_size in self._executable_sections():
+            # Code sections should be readable, but use bounded chunks so one failed
+            # read cannot discard an entire large section.
+            pieces = bytearray(section_size)
+            captured = 0
+            for offset in range(0, section_size, chunk_size):
+                size = min(chunk_size, section_size - offset)
+                try:
+                    data = self.read(self.base + section_rva + offset, size)
+                except GameMemoryError:
+                    continue
+                pieces[offset:offset + len(data)] = data
+                captured += len(data)
+            if captured:
+                sections.append((section_rva, bytes(pieces)))
+        if not sections:
+            raise GameMemoryError("Could not snapshot executable cityofheroes.exe sections.")
+        self._executable_snapshot = sections
+        return sections
+
+    def signature_hits(self, pattern: str) -> list[int]:
+        cached = self._signature_cache.get(pattern)
+        if cached is not None:
+            return list(cached)
+        hits: list[int] = []
+        for section_rva, data in self.executable_snapshot():
+            hits.extend(section_rva + offset for offset in find_signature_offsets(data, pattern))
+        hits = sorted(set(hits))
+        self._signature_cache[pattern] = hits
+        return list(hits)
+
+
+@dataclass(frozen=True)
+class _ResolvedMemoryContext:
+    profile: MemoryProfile
+    character_name: str
+    server: str
+    entity_address: int
+    character_address: int
+
+
+def _rip_relative_target_rva(
+    mem: ProcessMemory,
+    match_rva: int,
+    *,
+    disp_offset: int,
+    instruction_end: int,
+    target_adjust: int = 0,
+) -> int:
+    displacement = mem.i32(mem.base + match_rva + disp_offset)
+    return match_rva + instruction_end + displacement + target_adjust
+
+
+def _resolve_identity(mem: ProcessMemory, profile: MemoryProfile) -> str:
+    locator = profile.locator("identity")
+    pattern = str(locator["pattern"])
+    hits = mem.signature_hits(pattern)
+    valid: list[str] = []
+    max_string = as_int(locator.get("max_string", 64), field="identity.max_string")
+    max_abs = float(locator.get("position_max_abs", 1000000))
+    for match_rva in hits:
+        try:
+            xyz_rva = _rip_relative_target_rva(
+                mem,
+                match_rva,
+                disp_offset=as_int(locator["disp_offset"]),
+                instruction_end=as_int(locator["instruction_end"]),
+                target_adjust=as_int(locator.get("target_adjust", 0)),
+            )
+            if not (0 <= xyz_rva <= mem.module_size - 12):
+                continue
+            coords = [mem.f32(mem.base + xyz_rva + offset) for offset in (0, 4, 8)]
+            if not all(math.isfinite(value) and abs(value) <= max_abs for value in coords):
+                continue
+            name = mem.cstring(
+                mem.base + xyz_rva + as_int(locator["string_offset"]),
+                max_string,
+            ).strip()
+            if _valid_identity_string(name, max_len=max_string - 1):
+                valid.append(name)
+        except Exception:
+            continue
+    if len(valid) != 1:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} identity locator did not resolve to exactly one valid character."
+        )
+    return valid[0]
+
+
+def _resolve_server(mem: ProcessMemory, profile: MemoryProfile, *, required: bool) -> str:
+    locator = profile.locator("server")
+    hits = mem.signature_hits(str(locator["pattern"]))
+    valid: list[str] = []
+    max_string = as_int(locator.get("max_string", 64), field="server.max_string")
+    for match_rva in hits:
+        try:
+            target_rva = _rip_relative_target_rva(
+                mem,
+                match_rva,
+                disp_offset=as_int(locator["disp_offset"]),
+                instruction_end=as_int(locator["instruction_end"]),
+            )
+            if not (0 <= target_rva < mem.module_size):
+                continue
+            value = mem.cstring(mem.base + target_rva, max_string).strip()
+            if _valid_identity_string(value, max_len=max_string - 1):
+                valid.append(value)
+        except Exception:
+            continue
+    unique = list(dict.fromkeys(valid))
+    if len(unique) == 1:
+        return unique[0]
+    if not required and not unique:
+        return ""
+    raise GameMemoryError(
+        f"Profile {profile.profile_id} selected-server locator did not resolve uniquely."
+    )
+
+
+def _character_vitals_plausible(
+    mem: ProcessMemory, character: int, profile: MemoryProfile
+) -> bool:
+    character_cfg = profile.structure("character")
+    limits = profile.validation()
+    try:
+        hp = mem.f32(character + as_int(character_cfg["current_hp_offset"]))
+        end = mem.f32(character + as_int(character_cfg["current_end_offset"]))
+        max_hp = mem.f32(character + as_int(character_cfg["max_hp_offset"]))
+        max_end = mem.f32(character + as_int(character_cfg["max_end_offset"]))
+    except Exception:
+        return False
+    hp_limit = float(limits.get("max_hp", 1000000))
+    end_limit = float(limits.get("max_endurance", 100000))
+    return (
+        all(math.isfinite(value) for value in (hp, end, max_hp, max_end))
+        and -10 <= hp <= hp_limit
+        and -10 <= end <= end_limit
+        and 0 < max_hp <= hp_limit
+        and 0 < max_end <= end_limit
+        and hp <= max_hp * 2.0 + 100
+        and end <= max_end * 2.0 + 100
+    )
+
+
+def _resolve_entity_character(
+    mem: ProcessMemory,
+    profile: MemoryProfile,
+    identity_name: str,
+) -> tuple[int, int]:
+    locator = profile.locator("roster")
+    roster_cfg = profile.structure("roster")
+    entity_cfg = profile.structure("entity")
+    max_roster = as_int(profile.validation()["max_roster_count"])
+
+    valid: list[tuple[int, int]] = []
+    for match_rva in mem.signature_hits(str(locator["pattern"])):
+        try:
+            roster_base_rva = _rip_relative_target_rva(
+                mem,
+                match_rva,
+                disp_offset=as_int(locator["base_disp_offset"]),
+                instruction_end=as_int(locator["base_instruction_end"]),
+            )
+            roster_count_rva = _rip_relative_target_rva(
+                mem,
+                match_rva,
+                disp_offset=as_int(locator["count_disp_offset"]),
+                instruction_end=as_int(locator["count_instruction_end"]),
+            )
+            if not (
+                0 <= roster_base_rva < mem.module_size
+                and 0 <= roster_count_rva <= mem.module_size - 4
+            ):
+                continue
+            raw_count = mem.u32(mem.base + roster_count_rva)
+            if raw_count > max_roster:
+                continue
+
+            record = mem.base + roster_base_rva
+            copied_name = mem.cstring(
+                record + as_int(roster_cfg["name_offset"]), 64
+            ).strip()
+            entity = mem.qword(record + as_int(roster_cfg["entity_pointer_offset"]))
+            if not entity:
+                continue
+            entity_name = mem.cstring(
+                entity + as_int(entity_cfg["name_offset"]), 64
+            ).strip()
+            character = mem.qword(
+                entity + as_int(entity_cfg["character_pointer_offset"])
+            )
+            if not character:
+                continue
+            if not (
+                copied_name == identity_name
+                and entity_name == identity_name
+                and _character_vitals_plausible(mem, character, profile)
+            ):
+                continue
+            valid.append((entity, character))
+        except Exception:
+            continue
+
+    # Deduplicate in case two signatures/aliases someday point to the same structure.
+    valid = list(dict.fromkeys(valid))
+    if len(valid) != 1:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} roster -> Entity -> Character validation failed."
+        )
+    return valid[0]
+
+
+def _resolve_memory_context(
+    mem: ProcessMemory,
+    manager: MemoryProfileManager,
+    *,
+    require_server: bool = False,
+) -> _ResolvedMemoryContext:
+    failures: list[str] = []
+    for profile in manager.candidates():
+        try:
+            character_name = _resolve_identity(mem, profile)
+            server = _resolve_server(mem, profile, required=require_server)
+            entity, character = _resolve_entity_character(
+                mem, profile, character_name
+            )
+            return _ResolvedMemoryContext(
+                profile=profile,
+                character_name=character_name,
+                server=server,
+                entity_address=entity,
+                character_address=character,
+            )
+        except (GameMemoryError, MemoryProfileError) as exc:
+            failures.append(f"{profile.profile_id}: {exc}")
+    detail = "; ".join(failures[:4]) or "no profiles were available"
+    raise GameMemoryError(
+        "No memory profile passed semantic validation for this City of Heroes client. "
+        f"{detail}"
+    )
+
+
+def _read_process_identity(pid: int) -> tuple[str, str]:
+    """Resolve selector identity through the same signature/profile path as inventory."""
+    try:
+        manager = MemoryProfileManager()
         with ProcessMemory(pid) as mem:
-            samples: list[tuple[str, str, str]] = []
-            for idx in range(3):
-                character = mem.cstring(mem.base + CHARACTER_NAME_OFFSET, IDENTITY_STRING_MAX).strip()
-                last_server = mem.cstring(mem.base + LAST_LOGGED_IN_SERVER_OFFSET, IDENTITY_STRING_MAX).strip()
-                selected_server = mem.cstring(mem.base + SELECTED_SERVER_OFFSET, IDENTITY_STRING_MAX).strip()
-                samples.append((character, last_server, selected_server))
-                if idx < 2:
-                    time.sleep(0.025)
+            context = _resolve_memory_context(mem, manager, require_server=False)
+            return context.character_name, context.server
     except Exception:
         return "", ""
-
-    chars = [c for c, _, _ in samples if _valid_identity_string(c, max_len=63)]
-    character = chars[-1] if chars and len(set(chars)) == 1 else (chars[-1] if chars else "")
-
-    agreed = [last for _, last, selected in samples
-              if _valid_identity_string(last) and last == selected]
-    if agreed and len(set(agreed)) == 1:
-        server = agreed[-1]
-    else:
-        lasts = [last for _, last, _ in samples if _valid_identity_string(last)]
-        selecteds = [selected for _, _, selected in samples if _valid_identity_string(selected)]
-        if lasts and len(set(lasts)) == 1:
-            server = lasts[-1]
-        elif selecteds and len(set(selecteds)) == 1:
-            server = selecteds[-1]
-        else:
-            server = ""
-    return character, server
 
 
 def list_city_of_heroes_processes() -> list[GameProcessInfo]:
@@ -245,7 +586,9 @@ def list_city_of_heroes_processes() -> list[GameProcessInfo]:
     kernel32 = _kernel32()
     snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
     if snap == INVALID_HANDLE_VALUE:
-        raise GameMemoryError(f"Could not enumerate processes (Windows error {ctypes.get_last_error()}).")
+        raise GameMemoryError(
+            f"Could not enumerate processes (Windows error {ctypes.get_last_error()})."
+        )
     titles = _window_titles_by_pid()
     raw: list[tuple[int, str]] = []
     try:
@@ -263,85 +606,16 @@ def list_city_of_heroes_processes() -> list[GameProcessInfo]:
     found: list[GameProcessInfo] = []
     for pid, exe in raw:
         character, server = _read_process_identity(pid)
-        found.append(GameProcessInfo(
-            pid=pid, executable=exe, window_title=titles.get(pid, ""),
-            character_name=character, server=server,
-        ))
+        found.append(
+            GameProcessInfo(
+                pid=pid,
+                executable=exe,
+                window_title=titles.get(pid, ""),
+                character_name=character,
+                server=server,
+            )
+        )
     return sorted(found, key=lambda x: ((x.character_name or "~").casefold(), x.pid))
-
-
-def _module_base(pid: int, module_name: str = "cityofheroes.exe") -> int:
-    kernel32 = _kernel32()
-    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
-    if snap == INVALID_HANDLE_VALUE:
-        raise GameMemoryError(
-            f"Could not enumerate modules for PID {pid} (Windows error {ctypes.get_last_error()})."
-        )
-    try:
-        entry = MODULEENTRY32W()
-        entry.dwSize = ctypes.sizeof(entry)
-        ok = kernel32.Module32FirstW(snap, ctypes.byref(entry))
-        while ok:
-            if str(entry.szModule).casefold() == module_name.casefold():
-                return ctypes.cast(entry.modBaseAddr, ctypes.c_void_p).value or 0
-            ok = kernel32.Module32NextW(snap, ctypes.byref(entry))
-    finally:
-        kernel32.CloseHandle(snap)
-    raise GameMemoryError(f"Could not locate {module_name} module in PID {pid}.")
-
-
-class ProcessMemory:
-    def __init__(self, pid: int):
-        _require_windows()
-        self.pid = int(pid)
-        self.kernel32 = _kernel32()
-        self.handle = self.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, self.pid)
-        if not self.handle:
-            raise GameMemoryError(
-                f"Could not open cityofheroes.exe PID {pid} for reading (Windows error {ctypes.get_last_error()})."
-            )
-        self.base = _module_base(self.pid)
-
-    def close(self) -> None:
-        if getattr(self, "handle", None):
-            self.kernel32.CloseHandle(self.handle)
-            self.handle = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-
-    def read(self, address: int, size: int) -> bytes:
-        if not address or size <= 0:
-            raise GameMemoryError(f"Invalid memory read request address=0x{address:X} size={size}.")
-        buf = ctypes.create_string_buffer(size)
-        got = ctypes.c_size_t()
-        ok = self.kernel32.ReadProcessMemory(
-            self.handle, ctypes.c_void_p(address), buf, size, ctypes.byref(got)
-        )
-        if not ok or got.value != size:
-            raise GameMemoryError(
-                f"Could not read {size} bytes at 0x{address:X} from PID {self.pid} "
-                f"(Windows error {ctypes.get_last_error()})."
-            )
-        return buf.raw
-
-    def u32(self, address: int) -> int:
-        return int.from_bytes(self.read(address, 4), "little", signed=False)
-
-    def qword(self, address: int) -> int:
-        return int.from_bytes(self.read(address, 8), "little", signed=False)
-
-    def cstring(self, address: int, max_len: int = MAX_INTERNAL_STRING) -> str:
-        raw = self.read(address, max_len)
-        raw = raw.split(b"\x00", 1)[0]
-        try:
-            return raw.decode("ascii", errors="strict")
-        except UnicodeDecodeError:
-            return raw.decode("utf-8", errors="replace")
-
 
 _COMMON_IO_INTERNAL_TO_CANONICAL = {
     "Accuracy": "Invention: Accuracy",
@@ -668,133 +942,318 @@ class MemoryNameResolver:
 
 
 class GameInventoryReader:
-    def __init__(self, db_path: str | Path, *, alias_path: str | Path | None = None):
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        alias_path: str | Path | None = None,
+        memory_profile_path: str | Path | None = None,
+        profile_manager: MemoryProfileManager | None = None,
+    ):
         self.db_path = Path(db_path)
         self.alias_path = Path(alias_path) if alias_path else None
         self.resolver = MemoryNameResolver(self.db_path, alias_path=self.alias_path)
+        self.profile_manager = profile_manager or MemoryProfileManager(
+            user_pack_path=memory_profile_path
+        )
 
     @staticmethod
-    def _validate_header(kind: str, capacity: int, total: int, array: int) -> None:
-        if capacity < 0 or capacity > 10000:
-            raise GameMemoryError(f"{kind} capacity is implausible ({capacity}); the game memory layout may have changed.")
+    def _validate_header(
+        kind: str,
+        capacity: int,
+        total: int,
+        array: int,
+        *,
+        max_capacity: int,
+    ) -> None:
+        if capacity < 0 or capacity > max_capacity:
+            raise GameMemoryError(
+                f"{kind} capacity is implausible ({capacity}); "
+                "the game memory layout may have changed."
+            )
         if total < 0 or total > capacity:
             raise GameMemoryError(
-                f"{kind} total {total} is inconsistent with capacity {capacity}; the game memory layout may have changed."
+                f"{kind} total {total} is inconsistent with capacity {capacity}; "
+                "the game memory layout may have changed."
             )
         if total > 0 and not array:
-            raise GameMemoryError(f"{kind} array pointer is null while total is {total}.")
+            raise GameMemoryError(
+                f"{kind} collection pointer is null while total is {total}."
+            )
 
     def read(self, process: GameProcessInfo | int) -> MemoryInventorySnapshot:
         pid = process.pid if isinstance(process, GameProcessInfo) else int(process)
         title = process.window_title if isinstance(process, GameProcessInfo) else ""
+
         with ProcessMemory(pid) as mem:
-            owner = mem.qword(mem.base + OWNER_PTR_OFFSET)
-            if not owner:
-                raise GameMemoryError("The CoH owner pointer is null. Wait until the character is fully loaded in-world and try again.")
-            inventory = mem.qword(owner + OWNER_TO_INVENTORY)
-            if not inventory:
-                raise GameMemoryError(
-                    "The CoH inventory pointer is null. It can be temporarily unavailable during zoning; try again when the map is stable."
-                )
+            context = _resolve_memory_context(
+                mem, self.profile_manager, require_server=False
+            )
+            profile = context.profile
+            character = context.character_address
+            character_cfg = profile.structure("character")
+            recipe_cfg = character_cfg["recipes"]
+            salvage_cfg = character_cfg["salvage"]
+            validation = profile.validation()
+            max_capacity = as_int(validation["max_inventory_capacity"])
 
-            recipe_array = mem.qword(inventory + RECIPE_ARRAY_OFFSET)
-            recipe_capacity = mem.u32(inventory + RECIPE_CAPACITY_OFFSET)
-            recipe_total = mem.u32(inventory + RECIPE_TOTAL_OFFSET)
-            salvage_array = mem.qword(inventory + SALVAGE_ARRAY_OFFSET)
-            salvage_capacity = mem.u32(inventory + SALVAGE_CAPACITY_OFFSET)
-            salvage_total = mem.u32(inventory + SALVAGE_TOTAL_OFFSET)
-            self._validate_header("Recipe inventory", recipe_capacity, recipe_total, recipe_array)
-            self._validate_header("Salvage inventory", salvage_capacity, salvage_total, salvage_array)
+            recipe_array = mem.qword(
+                character + as_int(recipe_cfg["collection_offset"])
+            )
+            recipe_capacity = mem.u32(
+                character + as_int(recipe_cfg["capacity_offset"])
+            )
+            recipe_total = mem.u32(
+                character + as_int(recipe_cfg["count_offset"])
+            )
+            salvage_array = mem.qword(
+                character + as_int(salvage_cfg["collection_offset"])
+            )
+            salvage_capacity = mem.u32(
+                character + as_int(salvage_cfg["capacity_offset"])
+            )
+            salvage_total = mem.u32(
+                character + as_int(salvage_cfg["count_offset"])
+            )
 
-            recipes = self._read_recipes(mem, recipe_array, recipe_capacity, recipe_total)
-            salvage = self._read_salvage(mem, salvage_array, salvage_capacity, salvage_total)
+            self._validate_header(
+                "Recipe inventory",
+                recipe_capacity,
+                recipe_total,
+                recipe_array,
+                max_capacity=max_capacity,
+            )
+            self._validate_header(
+                "Salvage inventory",
+                salvage_capacity,
+                salvage_total,
+                salvage_array,
+                max_capacity=max_capacity,
+            )
 
+            recipes = self._read_recipes(
+                mem, recipe_array, recipe_total, profile
+            )
+            salvage = self._read_salvage(
+                mem, salvage_array, salvage_total, profile
+            )
+
+        # Preserve the 1.15 snapshot API. The legacy field names now contain the
+        # semantically validated Entity and Character addresses respectively.
         return MemoryInventorySnapshot(
             pid=pid,
             window_title=title,
-            owner_address=owner,
-            inventory_address=inventory,
+            owner_address=context.entity_address,
+            inventory_address=context.character_address,
             recipe_capacity=recipe_capacity,
             recipe_total=recipe_total,
             recipes=recipes,
             salvage_capacity=salvage_capacity,
             salvage_total=salvage_total,
             salvage=salvage,
+            memory_profile_id=profile.profile_id,
+            memory_profile_version=profile.profile_version,
+            memory_profile_source=profile.source,
         )
 
-    def _read_recipes(self, mem: ProcessMemory, array: int, capacity: int, total: int) -> list[MemoryRecipe]:
+    def _read_recipes(
+        self,
+        mem: ProcessMemory,
+        array: int,
+        total: int,
+        profile: MemoryProfile,
+    ) -> list[MemoryRecipe]:
         if total == 0:
             return []
+
+        entry_cfg = profile.structure("entries")
+        validation = profile.validation()
+        max_entries = as_int(validation["max_collection_entries"])
+        max_level = as_int(validation["max_recipe_level"])
+        max_string = as_int(validation["max_internal_string"])
+
+        definition_offset = as_int(entry_cfg["definition_pointer_offset"])
+        quantity_offset = as_int(entry_cfg["quantity_offset"])
+        name_offset = as_int(entry_cfg["internal_name_pointer_offset"])
+        level_offset = as_int(entry_cfg["recipe_level_offset"])
+
         out: list[MemoryRecipe] = []
         quantity_sum = 0
-        for index in range(max(capacity, 1)):
+        for index in range(max_entries):
             entry = mem.qword(array + index * 8)
             if not entry:
-                continue
-            definition = mem.qword(entry + ENTRY_DEFINITION_OFFSET)
-            quantity = mem.u32(entry + ENTRY_QUANTITY_OFFSET)
-            if not definition or quantity <= 0 or quantity > total or quantity_sum + quantity > total:
-                continue
-            name_ptr = mem.qword(definition + DEFINITION_INTERNAL_NAME_OFFSET)
-            level = mem.u32(definition + RECIPE_DEFINITION_LEVEL_OFFSET)
-            if not name_ptr or level > 53:
-                continue
-            internal_name = mem.cstring(name_ptr)
+                # The validated collections are contiguous. Stopping at the first
+                # null avoids walking from the pointer array into unrelated memory.
+                break
+            definition = mem.qword(entry + definition_offset)
+            quantity = mem.u32(entry + quantity_offset)
+            if (
+                not definition
+                or quantity <= 0
+                or quantity > total
+                or quantity_sum + quantity > total
+            ):
+                raise GameMemoryError(
+                    "Recipe collection entry failed structural validation; "
+                    "no memory inventory was imported."
+                )
+
+            name_ptr = mem.qword(definition + name_offset)
+            level = mem.u32(definition + level_offset)
+            if not name_ptr or level > max_level:
+                raise GameMemoryError(
+                    "Recipe definition failed semantic validation; "
+                    "no memory inventory was imported."
+                )
+
+            internal_name = mem.cstring(name_ptr, max_string).strip()
+            if not internal_name or "\ufffd" in internal_name:
+                raise GameMemoryError(
+                    "Recipe internal name failed semantic validation; "
+                    "no memory inventory was imported."
+                )
+
             canonical, source = self.resolver.resolve_recipe(internal_name, level)
-            out.append(MemoryRecipe(
-                internal_name=internal_name,
-                level=level,
-                quantity=quantity,
-                canonical_name=canonical,
-                entry_address=entry,
-                definition_address=definition,
-                mapping_source=source,
-            ))
+            out.append(
+                MemoryRecipe(
+                    internal_name=internal_name,
+                    level=level,
+                    quantity=quantity,
+                    canonical_name=canonical,
+                    entry_address=entry,
+                    definition_address=definition,
+                    mapping_source=source,
+                )
+            )
             quantity_sum += quantity
             if quantity_sum == total:
                 break
+
         if quantity_sum != total:
             raise GameMemoryError(
-                f"Recipe validation failed: enumerated quantities sum to {quantity_sum}, but the header total is {total}. "
-                "No memory inventory was imported."
+                f"Recipe validation failed: enumerated quantities sum to {quantity_sum}, "
+                f"but the header total is {total}. No memory inventory was imported."
             )
         return out
 
-    def _read_salvage(self, mem: ProcessMemory, array: int, capacity: int, total: int) -> list[MemorySalvage]:
+    def _read_salvage(
+        self,
+        mem: ProcessMemory,
+        array: int,
+        total: int,
+        profile: MemoryProfile,
+    ) -> list[MemorySalvage]:
         if total == 0:
             return []
+
+        entry_cfg = profile.structure("entries")
+        validation = profile.validation()
+        max_entries = as_int(validation["max_collection_entries"])
+        max_string = as_int(validation["max_internal_string"])
+
+        definition_offset = as_int(entry_cfg["definition_pointer_offset"])
+        quantity_offset = as_int(entry_cfg["quantity_offset"])
+        name_offset = as_int(entry_cfg["internal_name_pointer_offset"])
+
         out: list[MemorySalvage] = []
         quantity_sum = 0
-        for index in range(max(capacity, 1)):
+        for index in range(max_entries):
             entry = mem.qword(array + index * 8)
             if not entry:
-                continue
-            definition = mem.qword(entry + ENTRY_DEFINITION_OFFSET)
-            quantity = mem.u32(entry + ENTRY_QUANTITY_OFFSET)
-            if not definition or quantity <= 0 or quantity > total or quantity_sum + quantity > total:
-                continue
-            name_ptr = mem.qword(definition + DEFINITION_INTERNAL_NAME_OFFSET)
+                break
+            definition = mem.qword(entry + definition_offset)
+            quantity = mem.u32(entry + quantity_offset)
+            if (
+                not definition
+                or quantity <= 0
+                or quantity > total
+                or quantity_sum + quantity > total
+            ):
+                raise GameMemoryError(
+                    "Salvage collection entry failed structural validation; "
+                    "no memory inventory was imported."
+                )
+
+            name_ptr = mem.qword(definition + name_offset)
             if not name_ptr:
-                continue
-            internal_name = mem.cstring(name_ptr)
+                raise GameMemoryError(
+                    "Salvage definition has a null internal-name pointer; "
+                    "no memory inventory was imported."
+                )
+            internal_name = mem.cstring(name_ptr, max_string).strip()
+            if not internal_name or "\ufffd" in internal_name:
+                raise GameMemoryError(
+                    "Salvage internal name failed semantic validation; "
+                    "no memory inventory was imported."
+                )
+
             canonical = self.resolver.resolve_salvage(internal_name)
-            out.append(MemorySalvage(
-                internal_name=internal_name,
-                quantity=quantity,
-                canonical_name=canonical,
-                entry_address=entry,
-                definition_address=definition,
-            ))
+            out.append(
+                MemorySalvage(
+                    internal_name=internal_name,
+                    quantity=quantity,
+                    canonical_name=canonical,
+                    entry_address=entry,
+                    definition_address=definition,
+                )
+            )
             quantity_sum += quantity
+            # Salvage collection can contain non-capacity currencies after normal
+            # invention salvage. The Character header total is the capacity-using
+            # salvage count, so stop as soon as that exact semantic total is reached.
             if quantity_sum == total:
                 break
+
         if quantity_sum != total:
             raise GameMemoryError(
-                f"Salvage validation failed: enumerated quantities sum to {quantity_sum}, but the header total is {total}. "
-                "No memory inventory was imported."
+                f"Salvage validation failed: enumerated quantities sum to {quantity_sum}, "
+                f"but the header total is {total}. No memory inventory was imported."
             )
         return out
 
+def validate_memory_profile_pack_live(
+    db_path: str | Path,
+    pid: int,
+    profile_path: str | Path,
+    *,
+    alias_path: str | Path | None = None,
+) -> dict[str, Any]:
+    # Validate one candidate profile pack against a live client with no bundled fallback.
+    candidate_path = Path(profile_path)
+    if not candidate_path.exists():
+        raise GameMemoryError(f"Memory profile candidate does not exist: {candidate_path}")
+
+    no_override = candidate_path.with_name(".field_crafter_no_profile_override.json")
+    manager = MemoryProfileManager(
+        bundled_path=candidate_path,
+        user_pack_path=no_override,
+    )
+
+    with ProcessMemory(int(pid)) as mem:
+        context = _resolve_memory_context(mem, manager, require_server=True)
+
+    reader = GameInventoryReader(
+        db_path,
+        alias_path=alias_path,
+        profile_manager=manager,
+    )
+    snapshot = reader.read(int(pid))
+    if snapshot.memory_profile_id != context.profile.profile_id:
+        raise GameMemoryError(
+            "Candidate memory profile changed between semantic validation and inventory read."
+        )
+    return {
+        "profile_id": context.profile.profile_id,
+        "profile_version": context.profile.profile_version,
+        "character_name": context.character_name,
+        "server": context.server,
+        "recipe_total": snapshot.recipe_total,
+        "recipe_capacity": snapshot.recipe_capacity,
+        "salvage_total": snapshot.salvage_total,
+        "salvage_capacity": snapshot.salvage_capacity,
+        "unresolved_recipes": snapshot.unresolved_recipe_count,
+        "unresolved_salvage": snapshot.unresolved_salvage_count,
+    }
 
 def review_from_memory_snapshot(snapshot: MemoryInventorySnapshot) -> dict[str, Any]:
     recipe_rows: list[dict[str, Any]] = []
@@ -867,6 +1326,9 @@ def review_from_memory_snapshot(snapshot: MemoryInventorySnapshot) -> dict[str, 
                 "recipe_capacity": snapshot.recipe_capacity,
                 "salvage_total": snapshot.salvage_total,
                 "salvage_capacity": snapshot.salvage_capacity,
+                "memory_profile_id": snapshot.memory_profile_id,
+                "memory_profile_version": snapshot.memory_profile_version,
+                "memory_profile_source": snapshot.memory_profile_source,
             },
         },
     }
@@ -1203,7 +1665,7 @@ def refresh_memory_recipe_aliases(
     cache_dir = alias_path.parent / "wiki_cache" / "memory_recipe_map"
     client = MediaWikiClient(
         cache_dir=cache_dir,
-        user_agent="FieldCrafter/1.15 (personal Homecoming crafting utility)",
+        user_agent=f"FieldCrafter/{APP_VERSION} (personal Homecoming crafting utility)",
         delay_seconds=0.45,
         timeout=45.0,
         max_retries=7,

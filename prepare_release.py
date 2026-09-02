@@ -15,9 +15,8 @@ from pathlib import Path
 from hc_recipe_db.builder import build_database
 from hc_recipe_db.game_memory import refresh_memory_recipe_aliases, validate_memory_recipe_alias_coverage
 from hc_recipe_db.validation import validate_database
+from hc_recipe_db.version import RELEASE_VERSION
 
-
-RELEASE_VERSION = "1.15"
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 FACTORY_DB = DATA_DIR / "homecoming_recipes.sqlite"
@@ -285,7 +284,7 @@ def main() -> int:
                 },
                 "note": (
                     "Release data was live-refreshed, rebuilt, and strictly validated. "
-                    "This data snapshot is eligible for redistribution with Field Crafter 1.15."
+                    f"This data snapshot is eligible for redistribution with Field Crafter {RELEASE_VERSION}."
                 ),
             }
             SUMMARY.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

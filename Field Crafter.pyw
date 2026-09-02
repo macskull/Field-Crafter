@@ -66,7 +66,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 root = tk.Tk()
-root.title("Field Crafter 1.15 - First launch")
+root.title("Field Crafter 1.16-dev - First launch")
 root.resizable(False, False)
 root.geometry("520x170")
 try:

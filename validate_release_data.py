@@ -6,14 +6,17 @@ import sqlite3
 from pathlib import Path
 
 from hc_recipe_db.game_memory import validate_memory_recipe_alias_coverage
+from hc_recipe_db.memory_profiles import load_profile_pack
+from hc_recipe_db.memory_profile_updates import load_update_config
 from hc_recipe_db.validation import validate_database
+from hc_recipe_db.version import RELEASE_VERSION
 
-
-RELEASE_VERSION = "1.15"
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 DB = DATA / "homecoming_recipes.sqlite"
 ALIASES = DATA / "memory_recipe_aliases.json"
+MEMORY_PROFILES = DATA / "memory_profiles.json"
+MEMORY_UPDATE_CONFIG = DATA / "memory_update_config.json"
 SUMMARY = DATA / "release_data_summary.json"
 INFO = DATA / "release_database_info.json"
 
@@ -48,6 +51,18 @@ def main() -> int:
         problems.append(f"Missing factory database: {DB}")
     if not ALIASES.exists():
         problems.append(f"Missing factory memory map: {ALIASES}")
+    if not MEMORY_PROFILES.exists():
+        problems.append(f"Missing bundled memory definitions: {MEMORY_PROFILES}")
+    if not MEMORY_UPDATE_CONFIG.exists():
+        problems.append(f"Missing memory update configuration: {MEMORY_UPDATE_CONFIG}")
+    if not problems:
+        try:
+            pack_version, profiles = load_profile_pack(MEMORY_PROFILES, source="release_validation")
+            if not pack_version or not profiles:
+                problems.append("Bundled memory definition pack is empty.")
+            load_update_config(MEMORY_UPDATE_CONFIG)
+        except Exception as exc:
+            problems.append(f"Memory definition/update validation failed: {exc}")
     if problems:
         for problem in problems:
             print(f"ERROR: {problem}")
@@ -144,7 +159,7 @@ def main() -> int:
             print(f"- {problem}")
         return 1
 
-    print("\nPASS: Field Crafter 1.15 factory data is complete, validated, and redistribution ready.")
+    print(f"\nPASS: Field Crafter {RELEASE_VERSION} factory data is complete, validated, and redistribution ready.")
     return 0
 
 
