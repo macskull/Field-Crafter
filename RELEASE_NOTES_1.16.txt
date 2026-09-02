@@ -1,0 +1,31 @@
+FIELD CRAFTER 1.16 RELEASE NOTES
+================================
+
+Field Crafter 1.16 improves game-memory reliability, adds signed memory-definition
+updates, expands troubleshooting diagnostics, and improves the prepared Python
+distribution.
+
+GAME MEMORY
+-----------
+- Added automatic recovery that can locate compatible memory structures when the
+  current memory profile no longer works.
+- Updated memory reading to validate recovered character, recipe, and salvage
+  data before using it.
+
+MEMORY DEFINITION UPDATES
+-------------------------
+- Added signed memory-definition updates that can be installed independently of
+  a full Field Crafter release.
+- Added validation of downloaded memory definitions before they become active.
+
+DIAGNOSTICS
+-----------
+- Expanded game-memory diagnostics to make memory-reading and recovery problems
+  easier to troubleshoot.
+
+PYTHON AND RELEASE PACKAGING
+----------------------------
+- Added an offline dependency wheelhouse for the prepared 64-bit Python 3.13
+  distribution.
+- Updated release packaging and verification for the new memory-definition
+  files and release metadata.

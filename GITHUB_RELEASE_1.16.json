@@ -1,0 +1,12 @@
+{
+  "tag_name": "v1.16",
+  "name": "Field Crafter 1.16 - Public Test Release",
+  "prerelease": true,
+  "notes_file": "GITHUB_RELEASE_1.16.md",
+  "assets": [
+    "Field_Crafter_1.16.exe",
+    "Field_Crafter_1.16_Python.zip",
+    "SHA256SUMS.txt",
+    "RELEASE_MANIFEST.json"
+  ]
+}

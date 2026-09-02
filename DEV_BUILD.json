@@ -20,7 +20,20 @@
     "Memory validation tools now write full JSON result artifacts to %LOCALAPPDATA%\\FieldCrafter\\diagnostics and print only the result path. This convention is used by the v5.2 integrated test, v6 structural test, v6.1 qualification harness, and v6.2 qualification harness.",
     "Structural diagnostics v6.3 remove the circular dependency between inventory-header validation and entry-layout validation. If the v4/v5.2 type-aware header scan cannot prove a header because Entry/Definition offsets drifted, diagnostics jointly score bounded hypotheses containing the Character header, Entry quantity, Entry Definition pointer, Definition internal-name pointer, and recipe level. Complete semantic hypotheses are diagnostic/qualification-only and are never auto-adopted or persisted.",
     "Structural session recovery v7 promotes the qualified v6.3 deeper-layout evidence into a conservative, non-persistent production fallback. It recovers roster/Entity/Character/vitals/inventory-entry layout only as one coherent three-sample semantic structure, retries the normal production inventory reader, and never changes signed memory definitions. Signed candidate-profile validation explicitly disables v4, v5, and v7 recovery.",
-    "Structural recovery v7.1 calibrates the qualified pointer margins by field: roster->Entity remains >=5 while Entity->Character uses >=4, matching the live integrated v7 observation. Exact trusted-name agreement, clear-winner status, three-sample exact-layout stability, >=5 entry-pair/joint-hypothesis margins, and the full production retry remain unchanged. The v7.1 live harness also fixes the prior entry_layout_only scenario so it moves only Entry/Definition fields rather than the entire deeper object graph."
+    "Structural recovery v7.1 calibrates the qualified pointer margins by field: roster->Entity remains >=5 while Entity->Character uses >=4, matching the live integrated v7 observation. Exact trusted-name agreement, clear-winner status, three-sample exact-layout stability, >=5 entry-pair/joint-hypothesis margins, and the full production retry remain unchanged. The v7.1 live harness also fixes the prior entry_layout_only scenario so it moves only Entry/Definition fields rather than the entire deeper object graph.",
+    "Release-readiness audit v1 installs a safe collector for the current PyInstaller/build/release configuration, bundled-data hashes, memory modules, package versions, and Git state.",
+    "Release packaging hardening v1 adds a 1.16 PyInstaller spec, central release-version derivation, bundled memory-profile/update data in EXE and Python artifacts, four-file release hash binding, offline Python dependency wheelhouse packaging, corrected validation severity handling, and stricter final artifact verification.",
+    "Release environment test v1 performs a temporary Windows release-venv, all-wheel runtime wheelhouse, fresh no-index offline runtime install, runtime import smoke test, and temporary PyInstaller one-file build without refreshing or modifying release data.",
+    "Release wheelhouse consistency v1.1 replaces prebuilt-wheel-only dependency download with pip wheel, allowing pure-Python source dependencies to be converted into bundled wheels at release time. The environment dry run now compares every offline runtime package version against the online release environment and fails on any difference.",
+    "Release-data preparation runner v1 wraps the real 1.16 live Wiki refresh, complete memory recipe-map rebuild, release metadata generation, and independent redistribution validation in one command. It snapshots the existing release-data state and rolls it back if any final gate fails, while requiring memory_profiles.json and memory_update_config.json to remain unchanged.",
+    "Release-data preparation v1.1 automatically recreates .release_venv when pip is missing or internally damaged, and canonical build_release.ps1 uses the same health/rebuild logic. Release-data rollback is armed only immediately before prepare_release.py, unchanged release files are not replaced during rollback, and identical stale .rollback files from a previous interrupted attempt are cleaned safely.",
+    "Release-data preparation v1.2 performs an early Windows replaceability check on the live factory DB/map before the expensive Wiki refresh, retries transient WinError 5/32/33 replacement locks, preserves the original install exception, restores only files actually replaced, and streams prepare_release.py/validate_release_data.py progress live to the command window.",
+    "Release-data preparation v1.3 requires a sustained ~10 second Windows replacement lock before aborting, forces Python cleanup between probes, and explicitly closes the wrapper's SQLite count connection.",
+    "Memory-channel publication tool v1 invokes the existing maintainer publisher, requires the external signing key's public key to match memory_update_config.json, verifies the signed manifest independently with the app's configured public key, requires the published pack to match the release-validated bundled memory_profiles.json byte-for-byte, and checks the publication directory for private-key material.",
+    "Release documentation v1 updates public, Python-distribution, data, release-note, and GitHub-release copy for 1.16; adds a documentation release gate; and aligns both Python launch paths and the canonical release builder with the validated offline 64-bit Python 3.13 wheelhouse.",
+    "Memory-channel Git publication tool v1 publishes only the verified manifest and versioned memory pack through a detached origin/main worktree, never force-pushes, verifies the live raw GitHub channel against the bundled release pack/public key, and leaves the dirty 1.16-dev working tree untouched.",
+    "Memory-channel Git publication tool v1.1 preserves memory-channel JSON byte-for-byte with memory/.gitattributes, verifies staged and committed Git blobs against the release-validated pack before push, and waits for the branch raw URL to converge after GitHub propagation.",
+    "Memory-channel Git publication tool v1.1.1 corrects the v1.1 .gitattributes newline literal so the byte-preservation rule can be written and staged correctly."
   ],
   "memory_diagnostics_version": "3.1",
   "memory_session_recovery_version": "4",
@@ -30,5 +43,13 @@
   "memory_structural_diagnostics_version": "6.3",
   "memory_structural_qualification_version": "6.3",
   "memory_test_json_output_version": "6.2",
-  "memory_structural_recovery_version": "7.1"
+  "memory_structural_recovery_version": "7.1",
+  "release_readiness_audit_version": "1",
+  "release_packaging_hardening_version": "1.4",
+  "release_environment_test_version": "1.1",
+  "release_data_preparation_runner_version": "1.3",
+  "memory_channel_publication_tool_version": "1",
+  "release_documentation_version": "1",
+  "python_distribution_runtime": "cp313-win_amd64",
+  "memory_channel_git_publish_tool_version": "1.1.1"
 }

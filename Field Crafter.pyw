@@ -13,7 +13,42 @@ VENV_PY = VENV / "Scripts" / "python.exe"
 VENV_PYW = VENV / "Scripts" / "pythonw.exe"
 LOG = ROOT / "setup.log"
 RELEASE_DATA_SUMMARY = ROOT / "data" / "release_data_summary.json"
+WHEELHOUSE = ROOT / "wheelhouse"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000 if os.name == "nt" else 0)
+REQUIRED_PYTHON = (3, 13)
+
+
+def _display_version() -> str:
+    try:
+        data = json.loads(RELEASE_DATA_SUMMARY.read_text(encoding="utf-8"))
+        value = str(data.get("release_version") or "").strip()
+        if value:
+            return value
+    except Exception:
+        pass
+    return "1.16-dev"
+
+
+def _require_supported_python() -> None:
+    if sys.version_info[:2] == REQUIRED_PYTHON:
+        return
+    import tkinter as tk
+    from tkinter import messagebox
+
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showerror(
+        "Field Crafter",
+        "The prepared Field Crafter 1.16 Python distribution requires "
+        "64-bit Python 3.13.\n\n"
+        f"This interpreter is Python {sys.version_info.major}.{sys.version_info.minor}.",
+        parent=root,
+    )
+    root.destroy()
+    raise SystemExit(1)
+
+
+_require_supported_python()
 
 
 def _system_python() -> str:
@@ -41,7 +76,12 @@ def _runtime_ready() -> bool:
         return False
     try:
         result = subprocess.run(
-            [str(VENV_PY), "-c", "import rapidocr, PIL, tkinterdnd2, requests, bs4"],
+            [
+                str(VENV_PY),
+                "-c",
+                "import sys, rapidocr, PIL, tkinterdnd2, requests, bs4; "
+                "raise SystemExit(0 if sys.version_info[:2] == (3, 13) else 1)",
+            ],
             cwd=str(ROOT), capture_output=True, text=True, creationflags=CREATE_NO_WINDOW, timeout=30,
         )
         return result.returncode == 0
@@ -66,7 +106,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 root = tk.Tk()
-root.title("Field Crafter 1.16-dev - First launch")
+root.title(f"Field Crafter {_display_version()} - First launch")
 root.resizable(False, False)
 root.geometry("520x170")
 try:
@@ -101,12 +141,25 @@ bar.start(10)
 def setup_worker() -> None:
     try:
         commands = []
+        if not WHEELHOUSE.is_dir() or not any(WHEELHOUSE.glob("*.whl")):
+            raise RuntimeError(
+                "This Field Crafter Python package is missing its offline dependency "
+                "wheelhouse. Re-download the complete release ZIP."
+            )
         if not VENV_PY.exists():
             commands.append([_system_python(), "-m", "venv", str(VENV)])
+        offline_pip = [
+            str(VENV_PY),
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--find-links",
+            str(WHEELHOUSE),
+        ]
         commands.extend([
-            [str(VENV_PY), "-m", "pip", "install", "--upgrade", "pip"],
-            [str(VENV_PY), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")],
-            [str(VENV_PY), "-m", "pip", "install", "-r", str(ROOT / "requirements-ocr.txt")],
+            [*offline_pip, "-r", str(ROOT / "requirements.txt")],
+            [*offline_pip, "-r", str(ROOT / "requirements-ocr.txt")],
         ])
         with LOG.open("w", encoding="utf-8") as log:
             for idx, cmd in enumerate(commands, 1):

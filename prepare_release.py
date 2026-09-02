@@ -14,6 +14,8 @@ from pathlib import Path
 
 from hc_recipe_db.builder import build_database
 from hc_recipe_db.game_memory import refresh_memory_recipe_aliases, validate_memory_recipe_alias_coverage
+from hc_recipe_db.memory_profiles import load_profile_pack
+from hc_recipe_db.memory_profile_updates import load_update_config
 from hc_recipe_db.validation import validate_database
 from hc_recipe_db.version import RELEASE_VERSION
 
@@ -21,6 +23,8 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 FACTORY_DB = DATA_DIR / "homecoming_recipes.sqlite"
 FACTORY_ALIASES = DATA_DIR / "memory_recipe_aliases.json"
+MEMORY_PROFILES = DATA_DIR / "memory_profiles.json"
+MEMORY_UPDATE_CONFIG = DATA_DIR / "memory_update_config.json"
 CACHE_DIR = ROOT / "cache" / "release_data"
 EXPORT_DIR = ROOT / "exports"
 REPORT_TXT = DATA_DIR / "validation_report.txt"
@@ -114,6 +118,138 @@ def _cleanup_temp_tree(path: Path | None, *, attempts: int = 8) -> bool:
     return False
 
 
+
+def _windows_assert_replaceable(
+    path: Path,
+    *,
+    label: str,
+    attempts: int = 40,
+    delay_seconds: float = 0.25,
+) -> None:
+    """Fail early only after a sustained Windows replacement lock."""
+    if os.name != "nt" or not path.exists():
+        return
+
+    import ctypes
+    from ctypes import wintypes
+
+    DELETE = 0x00010000
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    FILE_SHARE_DELETE = 0x00000004
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x00000080
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+
+    last_error: int | None = None
+    for attempt in range(attempts):
+        # Make any local Python/SQLite finalizers run before probing Windows.
+        gc.collect()
+
+        handle = create_file(
+            str(path),
+            DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        if handle != INVALID_HANDLE_VALUE:
+            kernel32.CloseHandle(handle)
+            if attempt:
+                _progress(
+                    f"{label} replacement lock cleared after "
+                    f"{attempt + 1} checks."
+                )
+            return
+
+        error = ctypes.get_last_error()
+        last_error = error
+        if error not in {5, 32, 33}:
+            raise OSError(
+                error,
+                f"Could not test replaceability of {path}",
+            )
+
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(
+        f"{label} remained non-replaceable for approximately "
+        f"{attempts * delay_seconds:.1f} seconds "
+        f"(Windows error {last_error}). Close any running Field Crafter "
+        "instance, SQLite/DB browser, antivirus scan, sync/indexing tool, or "
+        "other program using this source-tree file and retry: "
+        f"{path}"
+    )
+
+
+def _replace_with_retry(
+    source: Path,
+    target: Path,
+    *,
+    label: str,
+    attempts: int = 12,
+) -> None:
+    """Replace a release file, tolerating short-lived Defender/indexer locks."""
+    last_error: OSError | None = None
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            last_error = exc
+            winerror = getattr(exc, "winerror", None)
+            if os.name != "nt" or winerror not in {5, 32, 33}:
+                raise
+            gc.collect()
+            if attempt + 1 < attempts:
+                time.sleep(min(0.20 * (attempt + 1), 1.25))
+
+    assert last_error is not None
+    raise RuntimeError(
+        f"{label} could not replace {target.name} after {attempts} attempts. "
+        "A Windows process is still holding the file open. Close Field Crafter, "
+        "SQLite/DB tools, or anything else using the source-tree data directory "
+        f"and retry. Last error: {last_error}"
+    ) from last_error
+
+
+def _safe_remove_swap_artifact(
+    artifact: Path,
+    *,
+    live_target: Path | None = None,
+) -> bool:
+    if not artifact.exists():
+        return False
+    if live_target is not None and live_target.is_file():
+        try:
+            if _sha256(artifact) != _sha256(live_target):
+                raise RuntimeError(
+                    "Stale release-swap artifact differs from the live file and "
+                    f"requires manual inspection: {artifact}"
+                )
+        except OSError:
+            raise
+    artifact.unlink()
+    return True
+
+
+
 def _strict_validate(db_path: Path, alias_path: Path) -> tuple[list, dict]:
     conn = sqlite3.connect(db_path)
     try:
@@ -153,6 +289,47 @@ def main() -> int:
 
     _progress(f"Preparing Field Crafter {RELEASE_VERSION} release data...")
     try:
+        if not MEMORY_PROFILES.exists():
+            raise RuntimeError(
+                f"Bundled memory definitions are missing: {MEMORY_PROFILES}"
+            )
+        if not MEMORY_UPDATE_CONFIG.exists():
+            raise RuntimeError(
+                f"Bundled memory update configuration is missing: {MEMORY_UPDATE_CONFIG}"
+            )
+        memory_pack_version, memory_profiles = load_profile_pack(
+            MEMORY_PROFILES,
+            source="release_preparation",
+        )
+        if not memory_pack_version or not memory_profiles:
+            raise RuntimeError("Bundled memory definition pack is empty.")
+        memory_update_config = load_update_config(MEMORY_UPDATE_CONFIG)
+        if not memory_update_config.get("manifest_url"):
+            raise RuntimeError("Memory update configuration has no manifest URL.")
+
+        # Do this before the expensive Wiki refresh. If a running Field Crafter
+        # instance or DB tool has the factory DB open without delete sharing,
+        # Windows cannot atomically replace it later.
+        _windows_assert_replaceable(
+            FACTORY_DB,
+            label="Factory recipe database",
+        )
+        _windows_assert_replaceable(
+            FACTORY_ALIASES,
+            label="Factory memory recipe map",
+        )
+
+        # Clean only byte-identical stale internal restore files from a prior
+        # interrupted preparation attempt.
+        _safe_remove_swap_artifact(
+            DATA_DIR / ".homecoming_recipes.restore.sqlite",
+            live_target=FACTORY_DB,
+        )
+        _safe_remove_swap_artifact(
+            DATA_DIR / ".memory_recipe_aliases.restore.json",
+            live_target=FACTORY_ALIASES,
+        )
+
         temp_root = Path(tempfile.mkdtemp(prefix="field_crafter_release_"))
         release_candidate_completed = False
         try:
@@ -233,30 +410,88 @@ def main() -> int:
                     shutil.copy2(FACTORY_ALIASES, old_aliases)
                 shutil.copy2(temp_db, staged_db)
                 shutil.copy2(temp_aliases, staged_aliases)
+                db_replaced = False
+                aliases_replaced = False
+                restore_db = DATA_DIR / ".homecoming_recipes.restore.sqlite"
+                restore_aliases = DATA_DIR / ".memory_recipe_aliases.restore.json"
                 try:
-                    os.replace(staged_db, FACTORY_DB)
-                    os.replace(staged_aliases, FACTORY_ALIASES)
+                    _replace_with_retry(
+                        staged_db,
+                        FACTORY_DB,
+                        label="Factory database install",
+                    )
+                    db_replaced = True
+
+                    _replace_with_retry(
+                        staged_aliases,
+                        FACTORY_ALIASES,
+                        label="Factory memory-map install",
+                    )
+                    aliases_replaced = True
+
                     # Validate the installed files, not just the temporary candidates.
                     checks, coverage = _strict_validate(FACTORY_DB, FACTORY_ALIASES)
-                except Exception:
-                    # Restore the prior pair if either replacement or the exact
-                    # installed-data validation fails.
-                    if had_db:
-                        restore_db = DATA_DIR / ".homecoming_recipes.restore.sqlite"
-                        shutil.copy2(old_db, restore_db)
-                        os.replace(restore_db, FACTORY_DB)
-                    else:
-                        FACTORY_DB.unlink(missing_ok=True)
-                    if had_aliases:
-                        restore_aliases = DATA_DIR / ".memory_recipe_aliases.restore.json"
-                        shutil.copy2(old_aliases, restore_aliases)
-                        os.replace(restore_aliases, FACTORY_ALIASES)
-                    else:
-                        FACTORY_ALIASES.unlink(missing_ok=True)
+                except Exception as install_error:
+                    rollback_errors: list[str] = []
+
+                    # Restore only files we actually replaced. If the initial DB
+                    # replacement itself failed, the live DB was never changed and
+                    # there is nothing to restore. This preserves the real error.
+                    if db_replaced:
+                        try:
+                            if had_db:
+                                shutil.copy2(old_db, restore_db)
+                                _replace_with_retry(
+                                    restore_db,
+                                    FACTORY_DB,
+                                    label="Factory database rollback",
+                                )
+                            else:
+                                FACTORY_DB.unlink(missing_ok=True)
+                        except Exception as exc:
+                            rollback_errors.append(
+                                f"database rollback: {exc}"
+                            )
+
+                    if aliases_replaced:
+                        try:
+                            if had_aliases:
+                                shutil.copy2(old_aliases, restore_aliases)
+                                _replace_with_retry(
+                                    restore_aliases,
+                                    FACTORY_ALIASES,
+                                    label="Factory memory-map rollback",
+                                )
+                            else:
+                                FACTORY_ALIASES.unlink(missing_ok=True)
+                        except Exception as exc:
+                            rollback_errors.append(
+                                f"memory-map rollback: {exc}"
+                            )
+
+                    if rollback_errors:
+                        raise RuntimeError(
+                            f"Factory-data install failed: {install_error}. "
+                            "Rollback also encountered: "
+                            + "; ".join(rollback_errors)
+                        ) from install_error
                     raise
                 finally:
                     staged_db.unlink(missing_ok=True)
                     staged_aliases.unlink(missing_ok=True)
+
+                    # Successful restore replacements consume these paths. If a
+                    # transient error left an identical copy behind, remove it.
+                    for artifact, live in (
+                        (restore_db, FACTORY_DB),
+                        (restore_aliases, FACTORY_ALIASES),
+                    ):
+                        if artifact.exists():
+                            try:
+                                if live.is_file() and _sha256(artifact) == _sha256(live):
+                                    artifact.unlink()
+                            except Exception:
+                                pass
 
             # Reports/exports are installed only after the exact factory data pair
             # has survived post-install validation.
@@ -265,6 +500,8 @@ def main() -> int:
             _copy_exports(temp_exports, EXPORT_DIR)
             db_hash = _sha256(FACTORY_DB)
             alias_hash = _sha256(FACTORY_ALIASES)
+            memory_profiles_hash = _sha256(MEMORY_PROFILES)
+            memory_update_config_hash = _sha256(MEMORY_UPDATE_CONFIG)
 
             summary = {
                 "release_version": RELEASE_VERSION,
@@ -278,9 +515,14 @@ def main() -> int:
                 "validation": result.get("validation", {}),
                 "validation_check_count": len(checks),
                 "memory_map": map_result,
+                "memory_profile_pack_version": memory_pack_version,
+                "memory_profile_count": len(memory_profiles),
+                "memory_update_channel": memory_update_config.get("channel"),
                 "sha256": {
                     "homecoming_recipes.sqlite": db_hash,
                     "memory_recipe_aliases.json": alias_hash,
+                    "memory_profiles.json": memory_profiles_hash,
+                    "memory_update_config.json": memory_update_config_hash,
                 },
                 "note": (
                     "Release data was live-refreshed, rebuilt, and strictly validated. "
@@ -310,6 +552,10 @@ def main() -> int:
                 raise RuntimeError("Database hash changed unexpectedly after release metadata generation.")
             if summary["sha256"]["memory_recipe_aliases.json"] != _sha256(FACTORY_ALIASES):
                 raise RuntimeError("Memory-map hash changed unexpectedly after release metadata generation.")
+            if summary["sha256"]["memory_profiles.json"] != _sha256(MEMORY_PROFILES):
+                raise RuntimeError("Bundled memory-definition hash changed unexpectedly after release metadata generation.")
+            if summary["sha256"]["memory_update_config.json"] != _sha256(MEMORY_UPDATE_CONFIG):
+                raise RuntimeError("Memory-update configuration hash changed unexpectedly after release metadata generation.")
             release_candidate_completed = True
 
         finally:

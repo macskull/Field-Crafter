@@ -1,10 +1,10 @@
 {
-  "release_version": "1.15",
+  "release_version": "1.16",
   "release_data_ready": true,
   "redistribution_ready": true,
   "offline_first_launch_ready": true,
-  "validated_at_utc": "2026-08-24T16:53:23.670236+00:00",
-  "database_built_at_utc": "2026-08-24T16:49:24.807593+00:00",
+  "validated_at_utc": "2026-09-02T14:25:43.212811+00:00",
+  "database_built_at_utc": "2026-09-02T14:21:46.137441+00:00",
   "database_effective_date": null,
   "database_counts": {
     "salvage": 108,
@@ -68,7 +68,7 @@
     "saved_aliases_before": 0,
     "saved_aliases_after": 847,
     "set_coverage": "163/163",
-    "cache_dir": "C:\\Users\\Robert\\AppData\\Local\\Temp\\field_crafter_release_8i9m1ky1\\wiki_cache\\memory_recipe_map",
+    "cache_dir": "C:\\Users\\Robert\\AppData\\Local\\Temp\\field_crafter_release_eqrkv5tj\\wiki_cache\\memory_recipe_map",
     "note": "Field Crafter cross-checked the legacy Attrib index against every set in the local recipe database. Stale aspect labels use set-page A-F order, and DB sets missing from the index are filled from their individual Homecoming Wiki set pages. Wiki requests are cached, paced, and retried.",
     "validated_coverage": {
       "complete": true,
@@ -86,9 +86,14 @@
       "missing_common": []
     }
   },
+  "memory_profile_pack_version": "2026.09.01.1",
+  "memory_profile_count": 1,
+  "memory_update_channel": "public-test",
   "sha256": {
-    "homecoming_recipes.sqlite": "ae68fc1f502a2b8f35403ce887967ff35a7489cc7f9697794439c04d598b4b24",
-    "memory_recipe_aliases.json": "a892f0152e163cba479c4f4e6964dfa93fe81e140a1f1b8d31ad97e29a46bdb6"
+    "homecoming_recipes.sqlite": "8599a839a4a926c66f25707b88d9161b1e63567bca752875095a5eaa1638773f",
+    "memory_recipe_aliases.json": "a892f0152e163cba479c4f4e6964dfa93fe81e140a1f1b8d31ad97e29a46bdb6",
+    "memory_profiles.json": "dc240a13c7135317783988e668bd56b51b68a78f2fbbec104b75d3bab01b9db3",
+    "memory_update_config.json": "b412918496b7939eeafdf5b626925ebfd93cb5bcd8fe4814b8c5314629a28cd2"
   },
-  "note": "Release data was live-refreshed, rebuilt, and strictly validated. This data snapshot is eligible for redistribution with Field Crafter 1.15."
+  "note": "Release data was live-refreshed, rebuilt, and strictly validated. This data snapshot is eligible for redistribution with Field Crafter 1.16."
 }

@@ -6,6 +6,7 @@ import copy
 import json
 import sys
 from pathlib import Path
+from field_crafter_test_output import print_result_path, write_test_json
 
 
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6_TEST
@@ -335,11 +336,31 @@ def main() -> int:
             "persistent_changes": False,
             "policy": policy,
         }
-        print(json.dumps(result, indent=2))
+        output_path = write_test_json(
+            "structural_diagnostics_v6",
+            pid,
+            result,
+        )
+        print_result_path(output_path, passed=True)
         return 0
 
     except Exception as exc:
-        print(f"SELF-TEST FAILED: {exc}", file=sys.stderr)
+        failure = {
+            "passed": False,
+            "test_version": "6",
+            "error": str(exc),
+            "auto_adopted": False,
+            "persistent_changes": False,
+        }
+        try:
+            output_path = write_test_json(
+                "structural_diagnostics_v6",
+                args.pid,
+                failure,
+            )
+            print_result_path(output_path, passed=False)
+        except Exception:
+            print(f"TEST FAILED: {exc}", file=sys.stderr)
         return 1
 
 

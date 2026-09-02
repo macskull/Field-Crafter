@@ -8,23 +8,23 @@ It can read recipes and invention salvage directly from a running City of Heroes
 
 ### Windows EXE - Recommended
 
-**[Download Field Crafter 1.15 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.15/Field_Crafter_1.15.exe)**
+**[Download Field Crafter 1.16 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16/Field_Crafter_1.16.exe)**
 
 Portable single-file Windows application. No Python installation is required.
 
 ### Python version
 
-**[Download Field Crafter 1.15 Python](https://github.com/macskull/Field-Crafter/releases/download/v1.15/Field_Crafter_1.15_Python.zip)**
+**[Download Field Crafter 1.16 Python](https://github.com/macskull/Field-Crafter/releases/download/v1.16/Field_Crafter_1.16_Python.zip)**
 
-Requires Python 3. The prepared Python package includes Field Crafter's validated crafting data and creates its own private Python environment.
+Requires 64-bit Python 3.13. The prepared Python package includes Field Crafter's validated crafting data and an offline dependency wheelhouse used to create its private Python environment.
 
 ### Release information
 
-- **[View the full Field Crafter 1.15 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.15)**
-- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.15/SHA256SUMS.txt)**
-- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.15/RELEASE_MANIFEST.json)**
+- **[View the full Field Crafter 1.16 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.16)**
+- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16/SHA256SUMS.txt)**
+- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.16/RELEASE_MANIFEST.json)**
 
-> The automatically generated **Source code (zip)** and **Source code (tar.gz)** files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field_Crafter_1.15_Python.zip` from the release assets instead.
+> The automatically generated **Source code (zip)** and **Source code (tar.gz)** files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field_Crafter_1.16_Python.zip` from the release assets instead.
 
 ## Features
 
@@ -41,8 +41,10 @@ Requires Python 3. The prepared Python package includes Field Crafter's validate
   - Total crafting cost.
   - Whether sufficient inventory space is available.
 - Local Homecoming recipe and salvage database.
-- User-initiated database update and game-memory mapping tools.
-- Offline-capable normal operation with a bundled validated crafting database.
+- User-initiated crafting-database updates.
+- Signed game-memory definition updates that can be checked separately from application releases.
+- Conservative session recovery for compatible game-memory layout changes.
+- Offline-capable normal operation with bundled validated crafting and memory data.
 
 ## Screenshots
 
@@ -76,10 +78,11 @@ The portable EXE does not require a Python installation.
 ### Python version
 
 - Windows 10 or Windows 11.
-- Python 3.
-- Internet access may be required the first time the Python version installs its Python dependencies.
+- 64-bit Python 3.13.
 
-The crafting database itself is bundled with Field Crafter and does not need to be downloaded on first launch.
+The prepared Python package includes the dependency wheels needed to create its private runtime environment, so first launch does not require a PyPI connection.
+
+The crafting database and bundled game-memory definitions are also included with the release.
 
 ## Getting Started
 
@@ -87,7 +90,7 @@ The crafting database itself is bundled with Field Crafter and does not need to 
 
 Download:
 
-`Field_Crafter_1.15.exe`
+`Field_Crafter_1.16.exe`
 
 Place it anywhere you like and run it.
 
@@ -99,7 +102,7 @@ Windows SmartScreen may warn about an unknown publisher because the application 
 
 Download and extract:
 
-`Field_Crafter_1.15_Python.zip`
+`Field_Crafter_1.16_Python.zip`
 
 Keep the extracted folder together.
 
@@ -113,7 +116,7 @@ or by running:
 .\launch_gui.ps1
 ```
 
-On first launch, the Python distribution creates a private Python environment and installs its required packages.
+On first launch, the Python distribution creates a private Python environment from the dependency wheels included in the ZIP.
 
 ## Using Field Crafter
 
@@ -164,17 +167,27 @@ Detected OCR confidence and related audit information are shown in the selected 
 
 Always review OCR-derived inventory before calculating a shopping list.
 
-## Database Updates
+## Crafting Database Updates
 
-Field Crafter ships with a validated Homecoming crafting database so a database download is not required during normal first launch.
+Field Crafter ships with a validated Homecoming crafting database, so a database download is not required during normal first launch.
 
 The **Database** tab provides user-initiated maintenance tools for:
 
 - Checking Homecoming Wiki for crafting-data changes.
 - Reviewing and accepting a validated candidate database.
-- Refreshing game-memory recipe mappings.
+- Refreshing game-memory recipe mappings when crafting data changes.
 
-Field Crafter does not silently replace its crafting database during normal startup.
+Crafting-database maintenance is separate from the signed memory-definition update system described below.
+
+## Game-Memory Definition Updates
+
+Field Crafter 1.16 adds a signed memory-definition update channel. This allows compatible memory-layout updates to be distributed independently of a full application reinstall.
+
+Use **Check for memory updates** when you want Field Crafter to check the configured update channel.
+
+Downloaded memory definitions are verified before they can become active. Verification includes the signed manifest, SHA-256 integrity checks, definition schema checks, version compatibility, and live validation against a running City of Heroes client.
+
+Field Crafter also includes conservative session recovery for compatible memory-layout changes. Recovery evidence can be included in diagnostics when a memory read needs troubleshooting.
 
 ## User Data
 
@@ -190,34 +203,36 @@ This may include:
 - Window settings.
 - Database update cache and backups.
 - User-level game-memory recipe mappings.
+- Downloaded memory-definition updates under the `memory` folder.
+- Memory-read diagnostics under the `diagnostics` folder.
 
 Removing the application EXE or extracted Python folder does not automatically remove this user data.
 
 ## Privacy
 
-Field Crafter is designed to perform its normal inventory processing locally.
+Field Crafter is designed to perform normal inventory processing locally.
 
 - Game-memory inventory reading occurs locally.
 - Screenshot OCR occurs locally.
 - Screenshots are not uploaded as part of the OCR workflow.
-- Internet access is used when you explicitly check for Homecoming crafting-data updates and, for the Python distribution, when required Python packages need to be installed.
+- Internet access is used when you explicitly check for Homecoming crafting-data updates or signed memory-definition updates.
 
 ## Verify Your Download
 
 Each public release includes SHA-256 hashes in:
 
-**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.15/SHA256SUMS.txt)**
+**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16/SHA256SUMS.txt)**
 
 To verify the portable EXE in PowerShell:
 
 ```powershell
-Get-FileHash ".\Field_Crafter_1.15.exe" -Algorithm SHA256
+Get-FileHash ".\Field_Crafter_1.16.exe" -Algorithm SHA256
 ```
 
 To verify the Python ZIP:
 
 ```powershell
-Get-FileHash ".\Field_Crafter_1.15_Python.zip" -Algorithm SHA256
+Get-FileHash ".\Field_Crafter_1.16_Python.zip" -Algorithm SHA256
 ```
 
 Compare the returned hash with the corresponding value in `SHA256SUMS.txt`.
@@ -228,7 +243,7 @@ A matching hash confirms that your downloaded file is byte-for-byte identical to
 
 ## Reporting Problems
 
-Field Crafter 1.15 is currently being made available for public testing and feedback.
+Field Crafter 1.16 is being made available as a public test release.
 
 If you encounter a problem, please **[open an Issue](https://github.com/macskull/Field-Crafter/issues)** and include as much relevant information as possible, such as:
 
@@ -240,10 +255,16 @@ If you encounter a problem, please **[open an Issue](https://github.com/macskull
 - Any displayed error message.
 - A screenshot when useful.
 
-For recipe-mapping problems, including the internal recipe/mapping information displayed in the selected recipe's Details section can be especially helpful.
+For recipe-mapping problems, the information displayed in the selected recipe's Details section can be especially helpful.
+
+For game-memory problems, include the relevant diagnostic JSON from:
+
+```text
+%LOCALAPPDATA%\FieldCrafter\diagnostics\
+```
+
+when one is available.
 
 ## Version
 
-**Field Crafter 1.15 - Public Test Release**
-
-Field Crafter is an independent community utility for City of Heroes: Homecoming.
+**Field Crafter 1.16 - Public Test Release**

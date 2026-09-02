@@ -8,6 +8,8 @@ from .memory_profiles import MemoryProfile, as_int
 
 
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6
+# FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6_2
+# FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6_3
 #
 # Diagnostic only. Nothing in this module is used by the production reader to
 # adopt or persist a memory layout.
@@ -27,6 +29,9 @@ MAX_ENTRY_POINTERS = 64
 MAX_ENTRY_PAIR_CANDIDATES = 8
 MAX_QUANTITY_CANDIDATES = 8
 MAX_LEVEL_CANDIDATES = 8
+MAX_JOINT_RAW_HEADER_CANDIDATES = 16
+MAX_JOINT_HYPOTHESIS_RESULTS = 12
+JOINT_HYPOTHESIS_MIN_MARGIN = 5.0
 
 _INTERNAL_NAME_RE = re.compile(r"^[A-Za-z0-9_.'+\-]{1,191}$")
 _RECIPE_COMMON_RE = re.compile(r"^Invention_.+_[0-9]+$")
@@ -49,6 +54,11 @@ def structural_diagnostic_policy_summary() -> dict[str, Any]:
         "entry_layout_auto_recovery": False,
         "entity_character_layout_auto_recovery": False,
         "vitals_layout_auto_recovery": False,
+        "entry_anchor_uses_type_aware_inventory_scan": True,
+        "entry_anchor_requires_clear_strong_winner": True,
+        "entry_anchor_joint_header_entry_hypothesis_fallback": True,
+        "joint_hypothesis_minimum_score_margin": JOINT_HYPOTHESIS_MIN_MARGIN,
+        "joint_hypothesis_auto_recovery": False,
     }
 
 
@@ -592,6 +602,432 @@ def _scan_entity_pointer_offsets(
     }
 
 
+
+def _joint_raw_header_candidates(
+    mem,
+    character: int,
+    profile: MemoryProfile,
+    *,
+    kind: str,
+) -> list[dict[str, Any]]:
+    expected = as_int(
+        profile.structure("character")[kind]["collection_offset"]
+    )
+    candidates: list[dict[str, Any]] = []
+    for offset in _offset_candidates(
+        expected,
+        INVENTORY_HEADER_WINDOW,
+        8,
+    ):
+        item = _raw_inventory_header(
+            mem,
+            character,
+            profile,
+            kind=kind,
+            collection_offset=offset,
+        )
+        if not item.get("populated"):
+            continue
+        try:
+            array = int(str(item.get("collection_pointer")), 0)
+        except Exception:
+            continue
+        entries = _entry_pointers(mem, array)
+        if len(entries) < 2:
+            continue
+        item = dict(item)
+        item["entry_pointer_count"] = len(entries)
+        candidates.append(item)
+
+    # The raw stage is intentionally weak. Distance is only a bounded-work
+    # ordering signal; semantic evidence below decides the winner.
+    candidates.sort(
+        key=lambda item: (
+            abs(int(item.get("delta_from_expected") or 0)),
+            -int(item.get("entry_pointer_count") or 0),
+            str(item.get("offset")),
+        )
+    )
+    return candidates[:MAX_JOINT_RAW_HEADER_CANDIDATES]
+
+
+def _decode_pair_for_joint(
+    mem,
+    entries: list[int],
+    profile: MemoryProfile,
+    *,
+    kind: str,
+    definition_offset: int,
+    name_offset: int,
+) -> dict[str, Any] | None:
+    max_string = as_int(profile.validation()["max_internal_string"])
+    definitions: list[int] = []
+    names: list[str] = []
+    matches = 0
+    mismatches = 0
+    neutral = 0
+
+    for entry in entries[:12]:
+        try:
+            definition = int(mem.qword(entry + definition_offset))
+            if not definition:
+                return None
+            name_ptr = int(mem.qword(definition + name_offset))
+            if not name_ptr:
+                return None
+            name = mem.cstring(name_ptr, max_string).strip()
+        except Exception:
+            return None
+        if not name or not _INTERNAL_NAME_RE.fullmatch(name):
+            return None
+
+        classification = _classify_name(name, kind)
+        if classification == "match":
+            matches += 1
+        elif classification == "mismatch":
+            mismatches += 1
+        else:
+            neutral += 1
+
+        definitions.append(definition)
+        names.append(name)
+
+    decoded = matches + mismatches + neutral
+    if decoded < 2:
+        return None
+
+    score = matches * 3 - mismatches * 4 + min(neutral, 2)
+    if matches >= 2 and mismatches == 0:
+        score += 5
+
+    return {
+        "definitions": definitions,
+        "names": names,
+        "decoded_count": decoded,
+        "namespace_matches": matches,
+        "namespace_mismatches": mismatches,
+        "namespace_neutral": neutral,
+        "score": score,
+    }
+
+
+def _recipe_level_joint_candidates(
+    mem,
+    definitions: list[int],
+    names: list[str],
+    profile: MemoryProfile,
+) -> list[dict[str, Any]]:
+    expected = as_int(
+        profile.structure("entries")["recipe_level_offset"]
+    )
+    max_level = as_int(profile.validation()["max_recipe_level"])
+    known: list[tuple[int, int]] = []
+
+    for definition, name in zip(definitions, names):
+        match = _LEVEL_SUFFIX_RE.search(str(name))
+        if not match:
+            continue
+        level = int(match.group(1))
+        if 0 <= level <= max_level:
+            known.append((definition, level))
+
+    if len(known) < 2:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for offset in _offset_candidates(expected, ENTRY_FIELD_WINDOW, 4):
+        sampled = 0
+        matched = 0
+        for definition, expected_level in known:
+            try:
+                value = int(mem.u32(definition + offset))
+            except Exception:
+                break
+            sampled += 1
+            if value == expected_level:
+                matched += 1
+        if sampled < 2 or matched < 2:
+            continue
+        candidates.append({
+            "offset": _hex(offset),
+            "delta_from_expected": offset - expected,
+            "matched_level_suffixes": matched,
+            "sampled": sampled,
+            "confidence": round(matched / sampled, 4),
+        })
+
+    candidates.sort(
+        key=lambda item: (
+            -float(item["confidence"]),
+            -int(item["matched_level_suffixes"]),
+            abs(int(item["delta_from_expected"])),
+        )
+    )
+    return candidates[:MAX_LEVEL_CANDIDATES]
+
+
+def _joint_hypothesis_public(
+    item: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not item:
+        return None
+    return {
+        key: value
+        for key, value in item.items()
+        if not key.startswith("_")
+    }
+
+
+def _joint_header_entry_hypotheses(
+    mem,
+    character: int,
+    profile: MemoryProfile,
+    *,
+    kind: str,
+) -> dict[str, Any]:
+    """Jointly score header and entry-layout hypotheses.
+
+    Unlike the v6.2 type-aware header scan, this path never assumes the signed
+    Entry/Definition offsets are correct. It first collects weak but plausible
+    populated Character headers, then asks whether a complete entry-layout
+    hypothesis can independently explain that header.
+
+    Diagnostic only: no candidate from this function is installed or persisted.
+    """
+    entry_cfg = profile.structure("entries")
+    expected_def = as_int(entry_cfg["definition_pointer_offset"])
+    expected_qty = as_int(entry_cfg["quantity_offset"])
+    expected_name = as_int(entry_cfg["internal_name_pointer_offset"])
+    expected_level = as_int(entry_cfg["recipe_level_offset"])
+
+    hypotheses: list[dict[str, Any]] = []
+
+    for header in _joint_raw_header_candidates(
+        mem,
+        character,
+        profile,
+        kind=kind,
+    ):
+        try:
+            array = int(str(header["collection_pointer"]), 0)
+            total = int(header["total"])
+        except Exception:
+            continue
+
+        entries = _entry_pointers(mem, array)
+        if len(entries) < 2 or total <= 0:
+            continue
+
+        quantity_scan = _scan_quantity_offsets(
+            mem,
+            entries,
+            total,
+            profile,
+        )
+        quantity_candidates = (
+            quantity_scan.get("exact_header_reproduction_candidates") or []
+        )
+        if not quantity_candidates:
+            continue
+
+        pair_candidates: list[dict[str, Any]] = []
+        for definition_offset in _offset_candidates(
+            expected_def,
+            ENTRY_FIELD_WINDOW,
+            8,
+        ):
+            for name_offset in _offset_candidates(
+                expected_name,
+                ENTRY_FIELD_WINDOW,
+                8,
+            ):
+                decoded = _decode_pair_for_joint(
+                    mem,
+                    entries,
+                    profile,
+                    kind=("recipe" if kind == "recipes" else "salvage"),
+                    definition_offset=definition_offset,
+                    name_offset=name_offset,
+                )
+                if not decoded:
+                    continue
+                if (
+                    int(decoded["namespace_matches"]) < 2
+                    or int(decoded["namespace_mismatches"]) != 0
+                ):
+                    continue
+
+                pair_candidates.append({
+                    "definition_pointer_offset": _hex(definition_offset),
+                    "definition_delta_from_expected": (
+                        definition_offset - expected_def
+                    ),
+                    "internal_name_pointer_offset": _hex(name_offset),
+                    "name_delta_from_expected": name_offset - expected_name,
+                    "decoded_count": decoded["decoded_count"],
+                    "namespace_matches": decoded["namespace_matches"],
+                    "namespace_mismatches": decoded["namespace_mismatches"],
+                    "namespace_neutral": decoded["namespace_neutral"],
+                    "pair_score": decoded["score"],
+                    "sample_internal_names": decoded["names"][:8],
+                    "_definitions": decoded["definitions"],
+                    "_names": decoded["names"],
+                })
+
+        if not pair_candidates:
+            continue
+
+        pair_candidates.sort(
+            key=lambda item: (
+                -int(item["pair_score"]),
+                -int(item["namespace_matches"]),
+                abs(int(item["definition_delta_from_expected"])),
+                abs(int(item["name_delta_from_expected"])),
+            )
+        )
+        pair_candidates = pair_candidates[:MAX_ENTRY_PAIR_CANDIDATES]
+
+        for quantity in quantity_candidates[:MAX_QUANTITY_CANDIDATES]:
+            for pair in pair_candidates:
+                level_best = None
+                level_candidates: list[dict[str, Any]] = []
+                if kind == "recipes":
+                    level_candidates = _recipe_level_joint_candidates(
+                        mem,
+                        list(pair["_definitions"]),
+                        list(pair["_names"]),
+                        profile,
+                    )
+                    if not level_candidates:
+                        continue
+                    level_best = level_candidates[0]
+                    if (
+                        float(level_best["confidence"]) < 0.75
+                        or int(level_best["matched_level_suffixes"]) < 2
+                    ):
+                        continue
+
+                score = 10.0  # populated plausible header + >=2 entry pointers
+                score += 8.0  # quantity offset exactly reproduces header total
+                score += float(pair["pair_score"])
+                score += min(
+                    8.0,
+                    float(pair["namespace_matches"]) * 0.75,
+                )
+                if kind == "recipes" and level_best is not None:
+                    score += 6.0 * float(level_best["confidence"])
+                    score += min(
+                        4.0,
+                        float(level_best["matched_level_suffixes"]),
+                    )
+
+                hypotheses.append({
+                    "header_offset": header["offset"],
+                    "header_delta_from_expected": (
+                        header["delta_from_expected"]
+                    ),
+                    "capacity": header["capacity"],
+                    "total": header["total"],
+                    "entry_pointer_count": len(entries),
+                    "quantity_offset": quantity["offset"],
+                    "quantity_delta_from_expected": (
+                        quantity["delta_from_expected"]
+                    ),
+                    "quantity_sum": quantity["quantity_sum"],
+                    "definition_pointer_offset": (
+                        pair["definition_pointer_offset"]
+                    ),
+                    "definition_delta_from_expected": (
+                        pair["definition_delta_from_expected"]
+                    ),
+                    "internal_name_pointer_offset": (
+                        pair["internal_name_pointer_offset"]
+                    ),
+                    "name_delta_from_expected": (
+                        pair["name_delta_from_expected"]
+                    ),
+                    "namespace_matches": pair["namespace_matches"],
+                    "namespace_mismatches": pair["namespace_mismatches"],
+                    "namespace_neutral": pair["namespace_neutral"],
+                    "sample_internal_names": pair["sample_internal_names"],
+                    "recipe_level_offset": (
+                        level_best["offset"]
+                        if level_best is not None else None
+                    ),
+                    "recipe_level_delta_from_expected": (
+                        level_best["delta_from_expected"]
+                        if level_best is not None else None
+                    ),
+                    "recipe_level_confidence": (
+                        level_best["confidence"]
+                        if level_best is not None else None
+                    ),
+                    "recipe_level_matches": (
+                        level_best["matched_level_suffixes"]
+                        if level_best is not None else None
+                    ),
+                    "score": round(score, 3),
+                    "strong": True,
+                })
+
+    hypotheses.sort(
+        key=lambda item: (
+            -float(item["score"]),
+            -int(item["namespace_matches"]),
+            abs(int(item["header_delta_from_expected"])),
+            abs(int(item["definition_delta_from_expected"])),
+            abs(int(item["name_delta_from_expected"])),
+            abs(int(item["quantity_delta_from_expected"])),
+        )
+    )
+    hypotheses = hypotheses[:MAX_JOINT_HYPOTHESIS_RESULTS]
+
+    best = hypotheses[0] if hypotheses else None
+    runner = hypotheses[1] if len(hypotheses) > 1 else None
+    margin = (
+        round(float(best["score"]) - float(runner["score"]), 3)
+        if best is not None and runner is not None else None
+    )
+    clear = bool(
+        best
+        and (
+            runner is None
+            or (
+                margin is not None
+                and margin >= JOINT_HYPOTHESIS_MIN_MARGIN
+            )
+        )
+    )
+
+    return {
+        "kind": kind,
+        "diagnostic_only": True,
+        "raw_header_candidate_limit": MAX_JOINT_RAW_HEADER_CANDIDATES,
+        "hypotheses": [
+            _joint_hypothesis_public(item)
+            for item in hypotheses
+        ],
+        "winner": {
+            "best": _joint_hypothesis_public(best) if clear else None,
+            "runner_up": _joint_hypothesis_public(runner),
+            "score_margin": margin,
+            "clear_winner": clear,
+            "reason": (
+                "only_strong_joint_hypothesis"
+                if best is not None and runner is None
+                else (
+                    "joint_score_margin_sufficient"
+                    if clear
+                    else (
+                        "no_complete_joint_hypothesis"
+                        if best is None
+                        else "joint_score_margin_ambiguous"
+                    )
+                )
+            ),
+        },
+    }
+
 def _raw_header_for_entry_scan(
     mem,
     character: int,
@@ -599,15 +1035,113 @@ def _raw_header_for_entry_scan(
     *,
     kind: str,
 ) -> dict[str, Any] | None:
-    scan = _scan_raw_inventory_headers(
+    """Choose an entry-layout anchor without circularly trusting entry offsets.
+
+    Fast path: reuse the validated v4/v5.2 type-aware header scan when the
+    signed/current entry layout is still good.
+
+    Fallback: if entry-layout drift prevents that scan from proving a header,
+    jointly score Character header + quantity + Definition* + internal-name
+    pointer (+ recipe level) hypotheses. This removes the circular dependency
+    exposed by v6.2 qualification.
+
+    Diagnostic only. Neither path installs or persists a candidate.
+    """
+    from .memory_diagnostics import _scan_header_candidates
+
+    cfg = profile.structure("character")[kind]
+    expected = as_int(cfg["collection_offset"])
+    capacity_delta = as_int(cfg["capacity_offset"]) - expected
+    count_delta = as_int(cfg["count_offset"]) - expected
+    probe_kind = "recipe" if kind == "recipes" else "salvage"
+
+    typed_scan = _scan_header_candidates(
+        mem,
+        character,
+        profile,
+        kind=probe_kind,
+        expected_offset=expected,
+        capacity_delta=capacity_delta,
+        count_delta=count_delta,
+    )
+    winner = typed_scan.get("winner") or {}
+    best = winner.get("best") or {}
+
+    if (
+        winner.get("clear_winner")
+        and best
+        and best.get("classification") == "strong"
+        and best.get("recovery_valid")
+        and best.get("type_compatible")
+    ):
+        try:
+            offset = int(str(best.get("offset")), 0)
+        except Exception:
+            offset = -1
+
+        if offset >= 0:
+            header = _raw_inventory_header(
+                mem,
+                character,
+                profile,
+                kind=kind,
+                collection_offset=offset,
+            )
+            if header.get("populated"):
+                header["anchor_source"] = "type_aware_strong_winner"
+                header["semantic_anchor_clear"] = True
+                header["type_aware_score"] = best.get("score")
+                header["type_aware_namespace_matches"] = (
+                    best.get("namespace_matches")
+                )
+                header["type_aware_score_margin"] = (
+                    winner.get("score_margin")
+                )
+                header["type_aware_runner_up_present"] = (
+                    winner.get("runner_up") is not None
+                )
+                header["type_aware_clear_winner"] = True
+                return header
+
+    joint = _joint_header_entry_hypotheses(
         mem,
         character,
         profile,
         kind=kind,
     )
-    populated = scan.get("populated_candidates") or []
-    return populated[0] if populated else None
+    joint_winner = (joint.get("winner") or {}).get("best") or {}
+    if not (joint.get("winner") or {}).get("clear_winner"):
+        return None
+    if not joint_winner:
+        return None
 
+    try:
+        offset = int(str(joint_winner["header_offset"]), 0)
+    except Exception:
+        return None
+
+    header = _raw_inventory_header(
+        mem,
+        character,
+        profile,
+        kind=kind,
+        collection_offset=offset,
+    )
+    if not header.get("populated"):
+        return None
+
+    header["anchor_source"] = "joint_header_entry_hypothesis"
+    header["semantic_anchor_clear"] = True
+    header["joint_hypothesis_score"] = joint_winner.get("score")
+    header["joint_hypothesis_score_margin"] = (
+        (joint.get("winner") or {}).get("score_margin")
+    )
+    header["joint_hypothesis_winner"] = joint_winner
+    header["joint_hypothesis_runner_up"] = (
+        (joint.get("winner") or {}).get("runner_up")
+    )
+    header["joint_hypothesis_scan"] = joint
+    return header
 
 def _entry_pointers(
     mem,
@@ -958,6 +1492,16 @@ def _scan_entry_layout(
         "kind": kind,
         "available": True,
         "header": header,
+        "header_anchor_source": header.get("anchor_source"),
+        "header_anchor_type_aware": (
+            header.get("anchor_source") == "type_aware_strong_winner"
+        ),
+        "header_anchor_joint_hypothesis": (
+            header.get("anchor_source") == "joint_header_entry_hypothesis"
+        ),
+        "header_anchor_semantic_clear": bool(
+            header.get("semantic_anchor_clear")
+        ),
         "entry_pointer_count": len(entries),
         "quantity_offset_scan": quantity,
         "definition_and_name_offset_scan": pair,

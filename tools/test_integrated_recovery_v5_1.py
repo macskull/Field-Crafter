@@ -8,11 +8,9 @@ import json
 import os
 import sys
 from pathlib import Path
-from field_crafter_test_output import print_result_path, write_test_json
 
 
 # FIELD_CRAFTER_MEMORY_INTEGRATED_RECOVERY_TEST_V5_1
-# FIELD_CRAFTER_MEMORY_STALE_EMPTY_GUARD_V5_2_TEST
 
 ROOT_DRIFT_LOCATORS = ("identity", "server", "roster")
 INVENTORY_DRIFT_KINDS = ("recipes", "salvage")
@@ -269,11 +267,9 @@ def main() -> int:
                     "root resolution; v5 would not actually be exercised."
                 )
 
-            # Stage 3 proof: determine how the stale shifted inventory manifests
-            # without recovery. A patch may leave the old header as all-zero memory,
-            # which is structurally valid as a genuinely empty inventory. v5.2 exists
-            # specifically to distinguish that case from a real empty inventory by
-            # finding a strong populated collection nearby.
+            # Stage 3 proof: using the real trusted root but the intentionally
+            # shifted inventory profile must fail a direct production inventory
+            # read with both recovery layers disabled.
             direct_reader = GameInventoryReader(
                 db_path,
                 alias_path=(
@@ -285,10 +281,8 @@ def main() -> int:
             )
             exact_inventory_failure_confirmed = False
             exact_inventory_failure_detail = ""
-            stale_empty_inventory_confirmed = False
-            stale_empty_inventory_totals = None
             try:
-                direct_inventory = direct_reader._read_inventory_with_profile(
+                direct_reader._read_inventory_with_profile(
                     mem,
                     exact,
                     drifted,
@@ -296,25 +290,11 @@ def main() -> int:
             except GameMemoryError as exc:
                 exact_inventory_failure_confirmed = True
                 exact_inventory_failure_detail = str(exc)
-            else:
-                stale_empty_inventory_totals = {
-                    "recipe_total": int(direct_inventory[1]),
-                    "salvage_total": int(direct_inventory[4]),
-                }
-                stale_empty_inventory_confirmed = (
-                    int(direct_inventory[1]) == 0
-                    or int(direct_inventory[4]) == 0
-                )
-
-            inventory_drift_effect_confirmed = bool(
-                exact_inventory_failure_confirmed
-                or stale_empty_inventory_confirmed
-            )
-            if not inventory_drift_effect_confirmed:
+            if not exact_inventory_failure_confirmed:
                 raise RuntimeError(
-                    "Integrated self-test inventory drift neither failed the "
-                    "direct read nor produced a stale-empty inventory. The test "
-                    "would not prove v4/v5.2 recovery behavior."
+                    "Integrated self-test inventory drift unexpectedly passed "
+                    "a direct no-recovery production read; v4 would not actually "
+                    "be exercised."
                 )
 
         # Now exercise the actual public production path. This opens a fresh
@@ -428,15 +408,6 @@ def main() -> int:
             "exact_inventory_failure_detail": (
                 exact_inventory_failure_detail
             ),
-            "stale_empty_inventory_confirmed": (
-                stale_empty_inventory_confirmed
-            ),
-            "stale_empty_inventory_totals": (
-                stale_empty_inventory_totals
-            ),
-            "inventory_drift_effect_confirmed": (
-                inventory_drift_effect_confirmed
-            ),
             "intentionally_drifted_root_locators": list(
                 ROOT_DRIFT_LOCATORS
             ),
@@ -471,31 +442,11 @@ def main() -> int:
             "persistent_files_unchanged": persistent_unchanged,
             "persistent_changes": False,
         }
-        output_path = write_test_json(
-            "integrated_recovery_v5_2",
-            pid,
-            result,
-        )
-        print_result_path(output_path, passed=True)
+        print(json.dumps(result, indent=2))
         return 0
 
     except Exception as exc:
-        failure = {
-            "passed": False,
-            "test_version": "5.2",
-            "error": str(exc),
-            "auto_adopted": False,
-            "persistent_changes": False,
-        }
-        try:
-            output_path = write_test_json(
-                "integrated_recovery_v5_2",
-                args.pid,
-                failure,
-            )
-            print_result_path(output_path, passed=False)
-        except Exception:
-            print(f"TEST FAILED: {exc}", file=sys.stderr)
+        print(f"SELF-TEST FAILED: {exc}", file=sys.stderr)
         return 1
 
 

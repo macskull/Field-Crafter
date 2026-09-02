@@ -72,6 +72,30 @@ def build_zip(source_dir: Path, output_zip: Path) -> None:
             f"{preview}"
         )
 
+    release_notes = sorted(
+        name
+        for name in names
+        if name.startswith(prefix + "RELEASE_NOTES_")
+        and name.endswith(".txt")
+    )
+    if len(release_notes) != 1:
+        raise RuntimeError(
+            "Python release ZIP must contain exactly one versioned RELEASE_NOTES_*.txt "
+            f"inside {root_name}/; found {len(release_notes)}."
+        )
+
+    wheel_files = sorted(
+        name
+        for name in names
+        if name.startswith(prefix + "wheelhouse/")
+        and name.lower().endswith(".whl")
+    )
+    if not wheel_files:
+        raise RuntimeError(
+            "Python release ZIP contains no bundled dependency wheels. "
+            "Offline first launch would not be guaranteed."
+        )
+
     rootless_runtime = {
         "Field Crafter.pyw",
         "field_crafter_entry.py",

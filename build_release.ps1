@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$SkipRefresh,
     [switch]$DataOnly
 )
@@ -6,9 +6,40 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-$Version = "1.15"
+$VersionFile = Join-Path $PSScriptRoot "src\hc_recipe_db\version.py"
+if (-not (Test-Path $VersionFile)) {
+    throw "Version module was not found: $VersionFile"
+}
+$VersionText = Get-Content $VersionFile -Raw
+$VersionMatch = [regex]::Match($VersionText, '(?m)^RELEASE_VERSION\s*=\s*"([^"]+)"\s*$')
+if (-not $VersionMatch.Success) {
+    throw "Could not read RELEASE_VERSION from $VersionFile"
+}
+$Version = $VersionMatch.Groups[1].Value
+$SpecName = "field_crafter_$($Version.Replace('.', '_')).spec"
+$SpecPath = Join-Path $PSScriptRoot $SpecName
+$ReleaseNotesName = "RELEASE_NOTES_$Version.txt"
+$GitHubReleaseNotesName = "GITHUB_RELEASE_$Version.md"
 $ReleaseVenv = Join-Path $PSScriptRoot ".release_venv"
 $ReleasePython = Join-Path $ReleaseVenv "Scripts\python.exe"
+
+$SystemPython = $null
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    $Candidate = & py -3.13 -c "import sys; print(sys.executable)" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $Candidate) {
+        $SystemPython = $Candidate.Trim()
+    }
+}
+if (-not $SystemPython -and (Get-Command python -ErrorAction SilentlyContinue)) {
+    $Candidate = & python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 13) else 1); print(sys.executable)" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $Candidate) {
+        $SystemPython = $Candidate.Trim()
+    }
+}
+if (-not $SystemPython) {
+    throw "Field Crafter 1.16 release packaging requires 64-bit Python 3.13."
+}
+
 $Dist = Join-Path $PSScriptRoot "dist"
 $StageRoot = Join-Path $PSScriptRoot "release_stage"
 $PythonStage = Join-Path $StageRoot "Field_Crafter_$Version`_Python"
@@ -23,29 +54,86 @@ function Invoke-Checked {
     }
 }
 
-function Ensure-ReleasePython {
+function Test-ReleasePip {
     if (-not (Test-Path $ReleasePython)) {
-        if (Get-Command py -ErrorAction SilentlyContinue) {
-            & py -3 -m venv $ReleaseVenv
-        } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-            & python -m venv $ReleaseVenv
-        } else {
-            throw "Python 3 was not found. Install Python 3 for Windows, then run build_release.ps1 again."
+        return $false
+    }
+    & $ReleasePython -m pip --version *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-ReleasePython313 {
+    if (-not (Test-Path $ReleasePython)) {
+        return $false
+    }
+    & $ReleasePython -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 13) else 1)" *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Ensure-ReleasePython {
+    $NeedsRecreate = (-not (Test-ReleasePip)) -or (-not (Test-ReleasePython313))
+    if ($NeedsRecreate) {
+        if (Test-Path $ReleaseVenv) {
+            Write-Host "Existing .release_venv has missing/broken pip; recreating it..." -ForegroundColor Yellow
+            Remove-Item $ReleaseVenv -Recurse -Force
         }
-        if ($LASTEXITCODE -ne 0) { throw "Could not create the release virtual environment." }
+        Write-Host "Creating clean release virtual environment..." -ForegroundColor Cyan
+        & $SystemPython -m venv $ReleaseVenv
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create release virtual environment."
+        }
+        if (-not (Test-ReleasePip) -or -not (Test-ReleasePython313)) {
+            throw "Fresh .release_venv is not a healthy Python 3.13 release environment."
+        }
     }
 
-    Invoke-Checked { & $ReleasePython -m pip install --upgrade pip } "Update release pip"
-    Invoke-Checked { & $ReleasePython -m pip install -r (Join-Path $PSScriptRoot "requirements.txt") } "Install database/runtime dependencies"
-    Invoke-Checked { & $ReleasePython -m pip install -r (Join-Path $PSScriptRoot "requirements-ocr.txt") } "Install OCR/runtime dependencies"
-    if (-not $DataOnly) {
-        Invoke-Checked { & $ReleasePython -m pip install -r (Join-Path $PSScriptRoot "requirements-build.txt") } "Install packaging dependencies"
+    & $ReleasePython -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "pip install failed in .release_venv; rebuilding the release environment once..." -ForegroundColor Yellow
+        if (Test-Path $ReleaseVenv) {
+            Remove-Item $ReleaseVenv -Recurse -Force
+        }
+        & $SystemPython -m venv $ReleaseVenv
+        if ($LASTEXITCODE -ne 0 -or -not (Test-ReleasePip) -or -not (Test-ReleasePython313)) {
+            throw "Could not recreate a healthy Python 3.13 release virtual environment."
+        }
+        & $ReleasePython -m pip install --upgrade pip
+        if ($LASTEXITCODE -ne 0) {
+            throw "pip remains unusable after rebuilding .release_venv."
+        }
+    }
+
+    & $ReleasePython -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install runtime requirements into the release virtual environment."
+    }
+
+    & $ReleasePython -m pip install -r (Join-Path $PSScriptRoot "requirements-ocr.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install OCR requirements into the release virtual environment."
+    }
+
+    & $ReleasePython -m pip install -r (Join-Path $PSScriptRoot "requirements-build.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install build requirements into the release virtual environment."
     }
 }
 
 Ensure-ReleasePython
+if (-not (Test-Path $SpecPath)) {
+    throw "PyInstaller spec for release $Version is missing: $SpecPath"
+}
+if (-not (Test-Path (Join-Path $PSScriptRoot $ReleaseNotesName))) {
+    throw "Release notes for Field Crafter $Version are missing: $ReleaseNotesName"
+}
+if (-not (Test-Path (Join-Path $PSScriptRoot $GitHubReleaseNotesName))) {
+    throw "GitHub release notes for Field Crafter $Version are missing: $GitHubReleaseNotesName"
+}
 $env:PYTHONPATH = Join-Path $PSScriptRoot "src"
 
+Invoke-Checked {
+    & $ReleasePython (Join-Path $PSScriptRoot "tools\validate_release_documentation_v1.py") --root $PSScriptRoot
+} "Validate release documentation"
 Invoke-Checked { & $ReleasePython -m compileall -q (Join-Path $PSScriptRoot "src") (Join-Path $PSScriptRoot "field_crafter_entry.py") } "Compile Python sources"
 Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "release_self_test.py") } "Run core smoke tests"
 
@@ -72,7 +160,7 @@ New-Item -ItemType Directory -Force $Dist | Out-Null
 New-Item -ItemType Directory -Force $PythonStage | Out-Null
 
 Invoke-Checked {
-    & $ReleasePython -m PyInstaller --noconfirm --clean (Join-Path $PSScriptRoot "field_crafter_1_15.spec")
+    & $ReleasePython -m PyInstaller --noconfirm --clean $SpecPath
 } "Build portable one-file EXE"
 
 $BuiltExe = Join-Path $Dist "Field_Crafter_$Version.exe"
@@ -93,7 +181,7 @@ $RuntimeItems = @(
     "requirements.txt",
     "requirements-ocr.txt",
     "README.txt",
-    "RELEASE_NOTES_1.15.txt",
+    $ReleaseNotesName,
     "validate_release_data.py",
     "release_self_test.py",
     "src",
@@ -115,12 +203,29 @@ $PublicDataKeep = @(
     "validation_report.json",
     "release_data_summary.json",
     "release_database_info.json",
+    "memory_profiles.json",
+    "memory_update_config.json",
     "README.txt"
 )
 Get-ChildItem (Join-Path $PythonStage "data") -File | Where-Object {
     $PublicDataKeep -notcontains $_.Name
 } | Remove-Item -Force
 Get-ChildItem $PythonStage -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+# Build a Windows wheelhouse so the public Python distribution can complete first
+# launch without reaching PyPI. Packaging fails if a runtime dependency has no
+# wheel for the release interpreter/platform.
+$Wheelhouse = Join-Path $PythonStage "wheelhouse"
+New-Item -ItemType Directory -Force $Wheelhouse | Out-Null
+Invoke-Checked {
+    & $ReleasePython -m pip wheel --wheel-dir $Wheelhouse `
+        -r (Join-Path $PSScriptRoot "requirements.txt") `
+        -r (Join-Path $PSScriptRoot "requirements-ocr.txt")
+} "Build offline Python dependency wheelhouse"
+$WheelFiles = @(Get-ChildItem $Wheelhouse -File -Filter "*.whl")
+if ($WheelFiles.Count -lt 1) {
+    throw "Offline Python wheelhouse is empty; refusing to package a Python release that would require network access."
+}
 
 # Validate the exact Python staging folder before zipping it.
 $OldPyPath = $env:PYTHONPATH
