@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "pack_version": "2026.09.01.1",
+  "note": "Bundled signature-first memory profile validated against the September 1, 2026 Homecoming client. Client hashes are provenance only and are not used to resolve or accept memory locations.",
+  "profiles": [
+    {
+      "id": "homecoming_signature_epoch_2026_09_01",
+      "profile_version": "2026.09.01.1",
+      "priority": 100,
+      "validated_clients": [
+        {
+          "sha256": "53912b819efa09c131da5fda290b1d70cf8c3eb24779f52bcdfec772b6104522",
+          "validated_at": "2026-09-01",
+          "role": "provenance_only"
+        }
+      ],
+      "locators": {
+        "identity": {
+          "resolver": "identity_xyz_relative_v1",
+          "pattern": "F3 0F 5E 0D ?? ?? ?? ?? F3 0F 5E 3D ?? ?? ?? ?? F3 0F 10 1D ?? ?? ?? ?? 0F 5B C0 F3 0F 5F F9",
+          "disp_offset": "0x14",
+          "instruction_end": "0x18",
+          "target_adjust": "-0x8",
+          "string_offset": "0x19",
+          "max_string": 64,
+          "position_max_abs": 1000000
+        },
+        "server": {
+          "resolver": "rip_relative_cstring_v1",
+          "pattern": "48 8B CB E8 ?? ?? ?? ?? 48 8B D0 48 8D 0D ?? ?? ?? ?? 41 B8 64 00 00 00 FF 15",
+          "disp_offset": "0x0E",
+          "instruction_end": "0x12",
+          "max_string": 64
+        },
+        "roster": {
+          "resolver": "roster_builder_v1",
+          "pattern": "41 B8 01 00 00 00 48 8D 0D ?? ?? ?? ?? 8B D7 E8 ?? ?? ?? ?? 0F 28 74 24 70 4C 8B BC 24 88 00 00 00 89 3D ?? ?? ?? ?? 48 81 C4 90 00 00 00 41 5E 41 5D 41 5C 5F 5E 5D 5B C3",
+          "base_disp_offset": "0x09",
+          "base_instruction_end": "0x0D",
+          "count_disp_offset": "0x23",
+          "count_instruction_end": "0x27"
+        }
+      },
+      "structures": {
+        "roster": {
+          "record_stride": "0x3C8",
+          "name_offset": "0x81",
+          "entity_pointer_offset": "0x3A8"
+        },
+        "entity": {
+          "name_offset": "0x33E8",
+          "character_pointer_offset": "0xE88"
+        },
+        "character": {
+          "current_hp_offset": "0x10C",
+          "current_end_offset": "0x114",
+          "max_hp_offset": "0x4B4",
+          "max_end_offset": "0x4BC",
+          "salvage": {
+            "collection_offset": "0x1428",
+            "capacity_offset": "0x1434",
+            "count_offset": "0x1438"
+          },
+          "recipes": {
+            "collection_offset": "0x1478",
+            "capacity_offset": "0x1484",
+            "count_offset": "0x1488"
+          }
+        },
+        "entries": {
+          "definition_pointer_offset": "0x0",
+          "quantity_offset": "0x8",
+          "internal_name_pointer_offset": "0x8",
+          "recipe_level_offset": "0x30"
+        }
+      },
+      "validation": {
+        "max_roster_count": 64,
+        "max_inventory_capacity": 10000,
+        "max_collection_entries": 512,
+        "max_internal_string": 192,
+        "max_recipe_level": 53,
+        "max_hp": 1000000,
+        "max_endurance": 100000
+      }
+    }
+  ]
+}
