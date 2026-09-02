@@ -1,0 +1,2 @@
+# Preserve signed memory-update JSON byte-for-byte.
+*.json -text
