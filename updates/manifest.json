@@ -1,0 +1,21 @@
+{
+  "artifacts": {
+    "exe": {
+      "bytes": 127517078,
+      "sha256": "45a0ec347d34fcaf9406fd5cbe75e52f96e7e37f9044a33375555b7cf6fb625a",
+      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/Field_Crafter_1.16.1.exe"
+    },
+    "python": {
+      "bytes": 113227451,
+      "sha256": "1bcb1373b762b85d2ebdc74ec5acb6694d2cbb526ee74db4fcd8da27c2ca0fc0",
+      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/Field_Crafter_1.16.1_Python.zip"
+    }
+  },
+  "channel": "public-test",
+  "minimum_updater_version": "1.16.1",
+  "release_url": "https://github.com/macskull/Field-Crafter/releases/tag/v1.16.1",
+  "schema_version": 1,
+  "signature": "b+OaiQw2uWg7c/JO0Br0rEQLrjS99yMQxmA+LuS5Gg7Y7DZgCmAmkz0br6RuWeJ18iVeOxlsZCYsd97rmWA5BQ==",
+  "summary": "Field Crafter 1.16.1 adds signed application updates and fixes invention salvage memory reads.",
+  "version": "1.16.1"
+}
