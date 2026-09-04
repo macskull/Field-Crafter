@@ -37,6 +37,12 @@ from .memory_profile_updates import (
     memory_profile_status, reject_memory_profile_update,
     rollback_memory_profile_update,
 )
+from .application_updates import (
+    check_for_application_update, download_application_update,
+    finalize_pending_application_update, format_download_size,
+    prepare_application_update_install,
+)
+# FIELD_CRAFTER_1_16_1_APPLICATION_UPDATER_V1
 
 
 def _is_common_recipe_name(value: str) -> bool:
@@ -179,6 +185,7 @@ class CraftingHelperGUI:
         self._window_state_path = self._app_state_dir / "window_state.json"
         self._memory_alias_path = self._app_state_dir / "memory_recipe_aliases.json"
         self._memory_update_candidate = None
+        self._application_update_candidate = None
         self._last_memory_diagnostic_path = None
         self._result_sort_state: dict[tuple[int, str], bool] = {}
         self._auction_batches: list[str] = []
@@ -843,6 +850,19 @@ class CraftingHelperGUI:
             command=self._start_memory_diagnostic,
         )
         self.memory_diagnostic_button.pack(side="left", padx=(8, 0))
+        app_update_row = ttk.Frame(controls)
+        app_update_row.grid(row=2, column=0, sticky="ew", pady=(9, 0))
+        self.application_update_button = ttk.Button(
+            app_update_row, text="Check for app updates", command=self._start_application_update
+        )
+        self.application_update_button.pack(side="left")
+        self.application_update_status_var = tk.StringVar(
+            value=f"Application: Field Crafter {APP_VERSION} • signed GitHub release updates"
+        )
+        ttk.Label(
+            app_update_row, textvariable=self.application_update_status_var,
+            justify="left",
+        ).pack(side="left", padx=(12, 0))
         ttk.Label(
             controls,
             text=(
@@ -850,12 +870,12 @@ class CraftingHelperGUI:
                 "Field Crafter also remembers unresolved mappings you correct manually in Review & Edit."
             ),
             wraplength=1050, justify="left",
-        ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.memory_profile_status_var = tk.StringVar(value="Memory definitions: loading...")
         ttk.Label(
             controls, textvariable=self.memory_profile_status_var,
             wraplength=1050, justify="left",
-        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        ).grid(row=4, column=0, sticky="ew", pady=(8, 0))
 
         log_frame = ttk.LabelFrame(tab, text="Last update scan", padding=5)
         self.update_log_frame = log_frame
@@ -928,6 +948,110 @@ class CraftingHelperGUI:
         self.update_text.see("end")
         self.update_text.configure(state="disabled")
 
+
+    def _set_application_update_button(self, enabled: bool) -> None:
+        if hasattr(self, "application_update_button"):
+            self.application_update_button.configure(state="normal" if enabled else "disabled")
+
+    def _start_application_update(self) -> None:
+        if self._update_cancel_event is not None:
+            self._show_error("Finish or cancel the current database update before checking for an application update.")
+            return
+        self._set_application_update_button(False)
+        self._show_progress()
+        self._write_update_log(
+            "Checking GitHub for a signed Field Crafter application release...\n"
+            "The release manifest must pass Ed25519 verification before Field Crafter will offer an update."
+        )
+        self._set_status("Checking for signed Field Crafter application updates...")
+        def worker():
+            try:
+                result = check_for_application_update()
+                self.root.after(0, lambda r=result: self._application_update_check_complete(r))
+            except Exception as exc:
+                self.root.after(0, lambda d=str(exc): self._application_update_failed(d))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _application_update_check_complete(self, result) -> None:
+        self._hide_progress()
+        if not result.update_available or result.candidate is None:
+            self._set_application_update_button(True)
+            self._append_update_log(result.message)
+            self._set_status(result.message)
+            from tkinter import messagebox
+            messagebox.showinfo("Application Update", result.message, parent=self.root)
+            return
+        candidate = result.candidate
+        self._application_update_candidate = candidate
+        distribution = "portable EXE" if candidate.distribution == "exe" else "prepared Python package"
+        size = format_download_size(candidate.artifact.size_bytes)
+        summary = f"\n\n{candidate.summary}" if candidate.summary else ""
+        self._append_update_log(
+            f"Signed Field Crafter {candidate.version} release is available for the {distribution}; download size {size}."
+        )
+        from tkinter import messagebox
+        accepted = messagebox.askyesno(
+            "Field Crafter Application Update",
+            (
+                f"Field Crafter {candidate.version} is available.\n\n"
+                f"Current version: {candidate.current_version}\n"
+                f"Package: {distribution}\n"
+                f"Download: {size}"
+                f"{summary}\n\n"
+                "The download will be checked against the SHA-256 value in the signed manifest. "
+                "If verification succeeds, Field Crafter will stage the replacement, close, and restart automatically.\n\n"
+                "Download and install this update?"
+            ),
+            parent=self.root,
+        )
+        if not accepted:
+            self._application_update_candidate = None
+            self._set_application_update_button(True)
+            self._append_update_log("Application update declined. The installed application was not changed.")
+            self._set_status("Application update declined; current version unchanged.")
+            return
+        self._show_progress()
+        self._set_status(f"Downloading and verifying Field Crafter {candidate.version}...")
+        def worker():
+            try:
+                artifact = download_application_update(candidate)
+                prepared = prepare_application_update_install(candidate, artifact)
+                self.root.after(0, lambda p=prepared: self._application_update_ready(p))
+            except Exception as exc:
+                self.root.after(0, lambda d=str(exc): self._application_update_failed(d))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _application_update_ready(self, prepared) -> None:
+        self._hide_progress()
+        candidate = self._application_update_candidate
+        version = candidate.version if candidate is not None else prepared.version
+        self._append_update_log(
+            f"Field Crafter {version} passed signed-manifest and artifact verification and is staged. "
+            "The replacement helper is ready; Field Crafter will now restart."
+        )
+        self._set_status(f"Field Crafter {version} is verified and ready to install; restarting...")
+        from tkinter import messagebox
+        messagebox.showinfo(
+            "Application Update Ready",
+            (
+                f"Field Crafter {version} has been downloaded, verified, and staged.\n\n"
+                "Field Crafter will now close, replace the application with the verified update, and restart. "
+                "Your settings and writable data under %LOCALAPPDATA%\\FieldCrafter are not replaced."
+            ),
+            parent=self.root,
+        )
+        self._application_update_candidate = None
+        self._on_close()
+
+    def _application_update_failed(self, detail: str) -> None:
+        self._application_update_candidate = None
+        self._hide_progress()
+        self._set_application_update_button(True)
+        self._append_update_log(
+            "Application update failed before the current installation was replaced.\n" + detail
+        )
+        self._set_status("Application update failed; current application unchanged.")
+        self._show_error(detail)
 
     def _refresh_memory_profile_info(self) -> None:
         if not hasattr(self, "memory_profile_status_var"):
@@ -2793,4 +2917,5 @@ def launch_gui(*, db_path: str | Path = "data/homecoming_recipes.sqlite") -> Non
         # Add/Paste still work if native drag/drop is unavailable.
         root = tk.Tk()
     CraftingHelperGUI(root, db_path=db_path)
+    finalize_pending_application_update()
     root.mainloop()

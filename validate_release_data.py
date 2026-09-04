@@ -8,6 +8,7 @@ from pathlib import Path
 from hc_recipe_db.game_memory import validate_memory_recipe_alias_coverage
 from hc_recipe_db.memory_profiles import load_profile_pack
 from hc_recipe_db.memory_profile_updates import load_update_config
+from hc_recipe_db.application_updates import load_application_update_config
 from hc_recipe_db.validation import validate_database
 from hc_recipe_db.version import RELEASE_VERSION
 
@@ -18,6 +19,7 @@ DB = DATA / "homecoming_recipes.sqlite"
 ALIASES = DATA / "memory_recipe_aliases.json"
 MEMORY_PROFILES = DATA / "memory_profiles.json"
 MEMORY_UPDATE_CONFIG = DATA / "memory_update_config.json"
+APPLICATION_UPDATE_CONFIG = DATA / "application_update_config.json"
 SUMMARY = DATA / "release_data_summary.json"
 INFO = DATA / "release_database_info.json"
 
@@ -53,6 +55,7 @@ def main() -> int:
         (ALIASES, "factory memory map"),
         (MEMORY_PROFILES, "bundled memory definitions"),
         (MEMORY_UPDATE_CONFIG, "memory update configuration"),
+        (APPLICATION_UPDATE_CONFIG, "application update configuration"),
     ):
         if not path.exists():
             problems.append(f"Missing {label}: {path}")
@@ -60,6 +63,7 @@ def main() -> int:
     pack_version = ""
     profiles = []
     update_config: dict = {}
+    application_update_config: dict = {}
     if not problems:
         try:
             pack_version, profiles = load_profile_pack(
@@ -69,8 +73,11 @@ def main() -> int:
             if not pack_version or not profiles:
                 problems.append("Bundled memory definition pack is empty.")
             update_config = load_update_config(MEMORY_UPDATE_CONFIG)
+            application_update_config = load_application_update_config(APPLICATION_UPDATE_CONFIG)
             if not update_config.get("manifest_url"):
                 problems.append("Memory update configuration has no manifest URL.")
+            if not application_update_config.get("manifest_url"):
+                problems.append("Application update configuration has no manifest URL.")
         except Exception as exc:
             problems.append(
                 f"Memory definition/update validation failed: {exc}"
@@ -186,11 +193,20 @@ def main() -> int:
             "match memory_update_config.json"
         )
 
+    if (
+        summary.get("application_update_channel")
+        != application_update_config.get("channel")
+    ):
+        problems.append(
+            "release_data_summary.json application update channel does not "
+            "match application_update_config.json"
+        )
     actual_hashes = {
         "homecoming_recipes.sqlite": _sha256(DB),
         "memory_recipe_aliases.json": _sha256(ALIASES),
         "memory_profiles.json": _sha256(MEMORY_PROFILES),
         "memory_update_config.json": _sha256(MEMORY_UPDATE_CONFIG),
+        "application_update_config.json": _sha256(APPLICATION_UPDATE_CONFIG),
     }
     expected_hashes = (
         summary.get("sha256")

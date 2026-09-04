@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 
-DEV_VERSION = "1.16-dev"
-RELEASE_VERSION = "1.16"
+DEV_VERSION = "1.16.1-dev"
+RELEASE_VERSION = "1.16.1"
 
 _RELEASE_MARKER = ".field_crafter_release"
 

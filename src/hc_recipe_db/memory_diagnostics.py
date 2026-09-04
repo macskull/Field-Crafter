@@ -18,10 +18,13 @@ from .game_memory import (
     _valid_identity_string,
 )
 from .memory_profiles import MemoryProfile, MemoryProfileManager, as_int, parse_signature
+from .salvage_semantics import default_invention_salvage_membership
 from .version import APP_VERSION
 
 
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6
+# FIELD_CRAFTER_INVENTION_SALVAGE_DIAGNOSTICS_V1
+# FIELD_CRAFTER_INVENTION_SALVAGE_DIAGNOSTICS_V2
 DIAGNOSTIC_SCHEMA_VERSION = 3
 MAX_REPORTED_SIGNATURE_HITS = 32
 MAX_REPORTED_LOCATOR_CANDIDATES = 16
@@ -473,12 +476,10 @@ def _probe_collection(
     )
     max_string = as_int(validation["max_internal_string"])
     max_level = as_int(validation["max_recipe_level"])
-
     definition_offset = as_int(entry_cfg["definition_pointer_offset"])
     quantity_offset = as_int(entry_cfg["quantity_offset"])
     name_offset = as_int(entry_cfg["internal_name_pointer_offset"])
     level_offset = as_int(entry_cfg["recipe_level_offset"])
-
     result: dict[str, Any] = {
         "entries": [],
         "quantity_sum": 0,
@@ -486,6 +487,10 @@ def _probe_collection(
         "first_null_index": None,
         "stopped_reason": "",
         "valid_entry_count": 0,
+        "semantic_quantity_filter": (
+            "canonical_invention_salvage" if kind == "salvage" else "all_entries"
+        ),
+        "semantic_filter_available": True,
         "namespace": {
             "matches": 0,
             "mismatches": 0,
@@ -511,30 +516,20 @@ def _probe_collection(
             result["entries"].append(row)
             result["stopped_reason"] = "entry_pointer_read_failed"
             break
-
         row["entry"] = _hex(entry)
         if not entry:
             result["entries"].append(row)
             result["first_null_index"] = index
             result["stopped_reason"] = "first_null"
             break
-
         try:
             definition = mem.qword(entry + definition_offset)
-            quantity = mem.u32(entry + quantity_offset)
             row["definition"] = _hex(definition)
-            row["quantity"] = quantity
             if not definition:
                 row["error"] = "null definition"
                 result["entries"].append(row)
                 result["stopped_reason"] = "invalid_definition"
                 break
-            if quantity <= 0 or quantity > max(total, 1):
-                row["error"] = "implausible quantity"
-                result["entries"].append(row)
-                result["stopped_reason"] = "invalid_quantity"
-                break
-
             name_ptr = mem.qword(definition + name_offset)
             row["name_pointer"] = _hex(name_ptr)
             if not name_ptr:
@@ -542,7 +537,6 @@ def _probe_collection(
                 result["entries"].append(row)
                 result["stopped_reason"] = "invalid_name_pointer"
                 break
-
             internal_name = mem.cstring(name_ptr, max_string).strip()
             row["internal_name"] = internal_name
             row["internal_name_plausible"] = bool(
@@ -552,13 +546,36 @@ def _probe_collection(
                 internal_name, kind
             )
 
+            membership: bool | None = None
+            if kind == "salvage":
+                membership = default_invention_salvage_membership(internal_name)
+                row["invention_salvage_membership"] = membership
+                if membership is None:
+                    result["semantic_filter_available"] = False
+            counts_toward_header = not (
+                kind == "salvage" and membership is False
+            )
+            row["counts_toward_header_total"] = counts_toward_header
+
+            quantity = mem.u32(entry + quantity_offset)
+            row["quantity"] = quantity
+            # Only quantities that semantically participate in the Character
+            # header are bounded by that header. Special/non-invention salvage can
+            # legitimately have unrelated (and much larger) currency quantities.
+            if counts_toward_header and (
+                quantity <= 0 or quantity > max(total, 1)
+            ):
+                row["error"] = "implausible counted quantity"
+                result["entries"].append(row)
+                result["stopped_reason"] = "invalid_quantity"
+                break
+
             if kind == "recipe":
                 level = mem.u32(definition + level_offset)
                 row["level"] = level
                 row["level_plausible"] = 0 <= level <= max_level
             else:
                 row["level_plausible"] = True
-
             row["valid"] = bool(
                 row["internal_name_plausible"] and row["level_plausible"]
             )
@@ -575,15 +592,19 @@ def _probe_collection(
             else:
                 result["namespace"]["neutral"] += 1
 
-            quantity_sum += quantity
+            if counts_toward_header:
+                quantity_sum += quantity
             result["valid_entry_count"] += 1
             result["entries"].append(row)
-            if quantity_sum == total:
-                result["stopped_reason"] = "header_total_reproduced"
-                result["quantity_matches_header"] = True
-                break
             if quantity_sum > total:
                 result["stopped_reason"] = "quantity_sum_exceeded_header"
+                break
+            if (
+                kind == "salvage"
+                and counts_toward_header
+                and quantity_sum == total
+            ):
+                result["stopped_reason"] = "header_total_reproduced"
                 break
         except Exception as exc:
             row["error"] = str(exc)
@@ -594,6 +615,9 @@ def _probe_collection(
         result["stopped_reason"] = "diagnostic_entry_limit"
 
     result["quantity_sum"] = quantity_sum
+    result["quantity_matches_header"] = quantity_sum == total
+    if result["quantity_matches_header"] and result["stopped_reason"] == "":
+        result["stopped_reason"] = "header_total_reproduced"
     _finalize_collection_namespace(result, kind=kind, total=total)
     return result
 

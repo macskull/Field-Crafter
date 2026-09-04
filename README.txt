@@ -1,4 +1,4 @@
-Field Crafter 1.16 - Python Distribution
+Field Crafter 1.16.1 - Python Distribution
 ========================================
 
 Field Crafter is a crafting inventory and shopping-list utility for
@@ -6,7 +6,7 @@ City of Heroes: Homecoming.
 
 Quick start
 -----------
-1. Extract the entire Field_Crafter_1.16_Python folder.
+1. Extract the entire Field_Crafter_1.16.1_Python folder.
 2. Keep the extracted folder together.
 3. Launch:
        Field Crafter.pyw
@@ -26,8 +26,8 @@ On first launch, Field Crafter creates its private Python environment using
 those bundled wheels.
 
 The validated crafting database, complete game-memory recipe map, bundled
-memory definitions, and memory-update configuration are included with the
-release.
+memory definitions, memory-update configuration, and application-update
+configuration are included with the release.
 
 Inventory input
 ---------------
@@ -51,6 +51,12 @@ Game-memory definition updates:
 - Downloaded definitions are checked for signature, hash, schema, compatibility,
   and live validity before activation.
 
+Application updates:
+- Use Check for app updates to query Field Crafter's separately signed application
+  release channel.
+- Downloaded EXE/Python artifacts are checked against the signed manifest, exact
+  byte size, and SHA-256 before replacement is staged.
+
 Writable application data
 --------------------------
 Field Crafter stores user-writable state under:
@@ -69,15 +75,15 @@ Game-memory troubleshooting diagnostics are stored under:
 Privacy
 -------
 Game-memory reading and screenshot OCR are processed locally. Internet access is
-used when you explicitly check for crafting-data or memory-definition updates.
+used when you explicitly check for crafting-data, memory-definition, or application updates.
 
 Release verification
 --------------------
-Use the SHA-256 values published with the GitHub v1.16 release to verify the
+Use the SHA-256 values published with the GitHub v1.16.1 release to verify the
 downloaded Python ZIP before extracting it.
 
 Project page:
     https://github.com/macskull/Field-Crafter
 
 Release page:
-    https://github.com/macskull/Field-Crafter/releases/tag/v1.16
+    https://github.com/macskull/Field-Crafter/releases/tag/v1.16.1

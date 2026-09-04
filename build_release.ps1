@@ -37,7 +37,7 @@ if (-not $SystemPython -and (Get-Command python -ErrorAction SilentlyContinue)) 
     }
 }
 if (-not $SystemPython) {
-    throw "Field Crafter 1.16 release packaging requires 64-bit Python 3.13."
+    throw "Field Crafter release packaging requires 64-bit Python 3.13."
 }
 
 $Dist = Join-Path $PSScriptRoot "dist"
@@ -132,10 +132,13 @@ if (-not (Test-Path (Join-Path $PSScriptRoot $GitHubReleaseNotesName))) {
 $env:PYTHONPATH = Join-Path $PSScriptRoot "src"
 
 Invoke-Checked {
-    & $ReleasePython (Join-Path $PSScriptRoot "tools\validate_release_documentation_v1.py") --root $PSScriptRoot
+    & $ReleasePython (Join-Path $PSScriptRoot "tools\validate_release_documentation_v2.py") --root $PSScriptRoot
 } "Validate release documentation"
 Invoke-Checked { & $ReleasePython -m compileall -q (Join-Path $PSScriptRoot "src") (Join-Path $PSScriptRoot "field_crafter_entry.py") } "Compile Python sources"
 Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "release_self_test.py") } "Run core smoke tests"
+Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_invention_salvage_classification_v1.py") } "Run invention-salvage regression tests"
+Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_application_updates_v1.py") } "Run application-updater regression tests"
+# FIELD_CRAFTER_1_16_1_FINAL_CONSOLIDATION_V1
 
 if (-not $SkipRefresh) {
     Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "prepare_release.py") } "Refresh and prepare release data"
@@ -215,6 +218,7 @@ $PublicDataKeep = @(
     "release_database_info.json",
     "memory_profiles.json",
     "memory_update_config.json",
+    "application_update_config.json",
     "README.txt"
 )
 Get-ChildItem (Join-Path $PythonStage "data") -File | Where-Object {
@@ -293,4 +297,5 @@ Write-Host "Portable EXE: $BuiltExe"
 Write-Host "Python ZIP:   $PythonZip"
 Write-Host "Checksums:    $(Join-Path $Dist 'SHA256SUMS.txt')"
 Write-Host ""
+Write-Host "After publishing the GitHub release assets, sign the application-update manifest with maintainer\publish_application_update.py." -ForegroundColor Yellow
 Write-Host "These artifacts were created only after live refresh and strict database/memory-map validation." -ForegroundColor Green

@@ -31,6 +31,8 @@ from .memory_profiles import (
 # FIELD_CRAFTER_MEMORY_STALE_EMPTY_GUARD_V5_2
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_RECOVERY_V7
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_RECOVERY_V7_1
+# FIELD_CRAFTER_INVENTION_SALVAGE_CLASSIFICATION_V1
+# FIELD_CRAFTER_INVENTION_SALVAGE_CLASSIFICATION_V2
 # Memory locations/structure offsets are now declarative and profile-driven.
 # Fixed RVAs are intentionally not retained here.
 
@@ -1492,7 +1494,6 @@ class GameInventoryReader:
     ) -> list[MemorySalvage]:
         if total == 0:
             return []
-
         entry_cfg = profile.structure("entries")
         validation = profile.validation()
         max_entries = as_int(validation["max_collection_entries"])
@@ -1501,7 +1502,6 @@ class GameInventoryReader:
         definition_offset = as_int(entry_cfg["definition_pointer_offset"])
         quantity_offset = as_int(entry_cfg["quantity_offset"])
         name_offset = as_int(entry_cfg["internal_name_pointer_offset"])
-
         out: list[MemorySalvage] = []
         quantity_sum = 0
         for index in range(max_entries):
@@ -1509,18 +1509,11 @@ class GameInventoryReader:
             if not entry:
                 break
             definition = mem.qword(entry + definition_offset)
-            quantity = mem.u32(entry + quantity_offset)
-            if (
-                not definition
-                or quantity <= 0
-                or quantity > total
-                or quantity_sum + quantity > total
-            ):
+            if not definition:
                 raise GameMemoryError(
                     "Salvage collection entry failed structural validation; "
                     "no memory inventory was imported."
                 )
-
             name_ptr = mem.qword(definition + name_offset)
             if not name_ptr:
                 raise GameMemoryError(
@@ -1534,7 +1527,24 @@ class GameInventoryReader:
                     "no memory inventory was imported."
                 )
 
+            # The Character header total is specifically invention salvage. The
+            # same collection can also contain unrelated S_* salvage/currencies,
+            # so classify the id against the canonical crafting database before
+            # allowing its quantity to participate in header reproduction.
             canonical = self.resolver.resolve_salvage(internal_name)
+            if canonical is None:
+                continue
+
+            quantity = mem.u32(entry + quantity_offset)
+            if (
+                quantity <= 0
+                or quantity > total
+                or quantity_sum + quantity > total
+            ):
+                raise GameMemoryError(
+                    "Invention salvage collection entry failed structural validation; "
+                    "no memory inventory was imported."
+                )
             out.append(
                 MemorySalvage(
                     internal_name=internal_name,
@@ -1545,16 +1555,18 @@ class GameInventoryReader:
                 )
             )
             quantity_sum += quantity
-            # Salvage collection can contain non-capacity currencies after normal
-            # invention salvage. The Character header total is the capacity-using
-            # salvage count, so stop as soon as that exact semantic total is reached.
+
+            # The Character header is the authoritative invention-salvage total.
+            # Once canonical invention salvage exactly reproduces it, the live
+            # semantic collection is complete. Do not walk farther into the raw
+            # pointer array: CoH can leave poison/stale pointers in later slots.
             if quantity_sum == total:
                 break
-
         if quantity_sum != total:
             raise GameMemoryError(
-                f"Salvage validation failed: enumerated quantities sum to {quantity_sum}, "
-                f"but the header total is {total}. No memory inventory was imported."
+                f"Salvage validation failed: recognized invention-salvage quantities "
+                f"sum to {quantity_sum}, but the header total is {total}. "
+                "No memory inventory was imported."
             )
         return out
 

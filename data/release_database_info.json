@@ -1,9 +1,9 @@
 {
-  "field_crafter_version": "1.16",
-  "database_updated": "2026-09-02T15:46:32.511207+00:00",
+  "field_crafter_version": "1.16.1",
+  "database_updated": "2026-09-04T07:52:02.727936+00:00",
   "database_effective_date": null,
   "validation_status": "passed",
-  "validated_at_utc": "2026-09-02T15:50:52.854097+00:00",
+  "validated_at_utc": "2026-09-04T08:13:18.787988+00:00",
   "redistribution_ready": true,
   "recipe_count": 902,
   "salvage_count": 108,
@@ -25,9 +25,10 @@
     "missing_common": []
   },
   "sha256": {
-    "homecoming_recipes.sqlite": "3debe5f907a2660e2dccca902a13983807fb1971b9d392daeb9bd440f8bfa9e6",
+    "homecoming_recipes.sqlite": "71889d09573699036dcc5c771e7724de251b00ab4aaa14822a319dd617a2d092",
     "memory_recipe_aliases.json": "a892f0152e163cba479c4f4e6964dfa93fe81e140a1f1b8d31ad97e29a46bdb6",
-    "memory_profiles.json": "dc240a13c7135317783988e668bd56b51b68a78f2fbbec104b75d3bab01b9db3",
-    "memory_update_config.json": "b412918496b7939eeafdf5b626925ebfd93cb5bcd8fe4814b8c5314629a28cd2"
+    "memory_profiles.json": "a594243fee0713eee8e85970741c1b63926c09f108312d44fcaea1fb9d73d925",
+    "memory_update_config.json": "4400600fd55647b724fc5062d0791cdef02dcca60b76d5293f2b8f76bd0752b8",
+    "application_update_config.json": "c90b53b4928771d658dc6cdbcc56a9c1b4fd68bbe4951601067e72297adb9a2b"
   }
 }

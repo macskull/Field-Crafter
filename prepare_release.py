@@ -16,6 +16,7 @@ from hc_recipe_db.builder import build_database
 from hc_recipe_db.game_memory import refresh_memory_recipe_aliases, validate_memory_recipe_alias_coverage
 from hc_recipe_db.memory_profiles import load_profile_pack
 from hc_recipe_db.memory_profile_updates import load_update_config
+from hc_recipe_db.application_updates import load_application_update_config
 from hc_recipe_db.validation import validate_database
 from hc_recipe_db.version import RELEASE_VERSION
 
@@ -25,6 +26,7 @@ FACTORY_DB = DATA_DIR / "homecoming_recipes.sqlite"
 FACTORY_ALIASES = DATA_DIR / "memory_recipe_aliases.json"
 MEMORY_PROFILES = DATA_DIR / "memory_profiles.json"
 MEMORY_UPDATE_CONFIG = DATA_DIR / "memory_update_config.json"
+APPLICATION_UPDATE_CONFIG = DATA_DIR / "application_update_config.json"
 CACHE_DIR = ROOT / "cache" / "release_data"
 EXPORT_DIR = ROOT / "exports"
 REPORT_TXT = DATA_DIR / "validation_report.txt"
@@ -297,6 +299,10 @@ def main() -> int:
             raise RuntimeError(
                 f"Bundled memory update configuration is missing: {MEMORY_UPDATE_CONFIG}"
             )
+        if not APPLICATION_UPDATE_CONFIG.exists():
+            raise RuntimeError(
+                f"Bundled application update configuration is missing: {APPLICATION_UPDATE_CONFIG}"
+            )
         memory_pack_version, memory_profiles = load_profile_pack(
             MEMORY_PROFILES,
             source="release_preparation",
@@ -306,6 +312,9 @@ def main() -> int:
         memory_update_config = load_update_config(MEMORY_UPDATE_CONFIG)
         if not memory_update_config.get("manifest_url"):
             raise RuntimeError("Memory update configuration has no manifest URL.")
+        application_update_config = load_application_update_config(APPLICATION_UPDATE_CONFIG)
+        if not application_update_config.get("manifest_url"):
+            raise RuntimeError("Application update configuration has no manifest URL.")
 
         # Do this before the expensive Wiki refresh. If a running Field Crafter
         # instance or DB tool has the factory DB open without delete sharing,
@@ -502,6 +511,7 @@ def main() -> int:
             alias_hash = _sha256(FACTORY_ALIASES)
             memory_profiles_hash = _sha256(MEMORY_PROFILES)
             memory_update_config_hash = _sha256(MEMORY_UPDATE_CONFIG)
+            application_update_config_hash = _sha256(APPLICATION_UPDATE_CONFIG)
 
             summary = {
                 "release_version": RELEASE_VERSION,
@@ -518,11 +528,13 @@ def main() -> int:
                 "memory_profile_pack_version": memory_pack_version,
                 "memory_profile_count": len(memory_profiles),
                 "memory_update_channel": memory_update_config.get("channel"),
+                "application_update_channel": application_update_config.get("channel"),
                 "sha256": {
                     "homecoming_recipes.sqlite": db_hash,
                     "memory_recipe_aliases.json": alias_hash,
                     "memory_profiles.json": memory_profiles_hash,
                     "memory_update_config.json": memory_update_config_hash,
+                    "application_update_config.json": application_update_config_hash,
                 },
                 "note": (
                     "Release data was live-refreshed, rebuilt, and strictly validated. "
@@ -556,6 +568,8 @@ def main() -> int:
                 raise RuntimeError("Bundled memory-definition hash changed unexpectedly after release metadata generation.")
             if summary["sha256"]["memory_update_config.json"] != _sha256(MEMORY_UPDATE_CONFIG):
                 raise RuntimeError("Memory-update configuration hash changed unexpectedly after release metadata generation.")
+            if summary["sha256"]["application_update_config.json"] != _sha256(APPLICATION_UPDATE_CONFIG):
+                raise RuntimeError("Application-update configuration hash changed unexpectedly after release metadata generation.")
             release_candidate_completed = True
 
         finally:

@@ -1,0 +1,31 @@
+FIELD CRAFTER 1.16.1 RELEASE NOTES
+==================================
+
+Field Crafter 1.16.1 is a hotfix release for direct game-memory invention-salvage
+reading and also introduces signed full-application updates from GitHub.
+
+INVENTION SALVAGE
+-----------------
+- Fixed invention-salvage validation so unrelated non-invention S_* inventory
+  entries no longer contribute to the authoritative invention-salvage total.
+- Updated salvage enumeration to stop once canonical invention salvage exactly
+  reproduces the character's invention-salvage header, preventing reads into
+  unusable allocator/poison slots beyond the live inventory prefix.
+- Updated memory diagnostics to use the same canonical invention-salvage
+  accounting and stopping boundary as the production reader.
+
+APPLICATION UPDATES
+-------------------
+- Added a separately signed full-application update channel for both the portable
+  EXE and prepared Python distributions.
+- Added signed-manifest verification plus exact artifact size and SHA-256 checks
+  before a downloaded application update can be staged.
+- Added staged replacement, restart, and rollback handling so the old application
+  remains recoverable if replacement fails.
+
+RELEASE VALIDATION
+------------------
+- Added invention-salvage and application-updater regression suites to the normal
+  release build gates.
+- Updated release metadata and packaging validation for the application-update
+  configuration and Field Crafter 1.16.1 artifacts.

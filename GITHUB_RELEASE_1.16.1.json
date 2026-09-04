@@ -1,0 +1,12 @@
+{
+  "tag_name": "v1.16.1",
+  "name": "Field Crafter 1.16.1 - Public Test Hotfix",
+  "prerelease": true,
+  "notes_file": "GITHUB_RELEASE_1.16.1.md",
+  "assets": [
+    "Field_Crafter_1.16.1.exe",
+    "Field_Crafter_1.16.1_Python.zip",
+    "SHA256SUMS.txt",
+    "RELEASE_MANIFEST.json"
+  ]
+}

@@ -5,11 +5,14 @@ import re
 from typing import Any
 
 from .memory_profiles import MemoryProfile, as_int
+from .salvage_semantics import default_invention_salvage_membership
 
 
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6_2
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6_3
+# FIELD_CRAFTER_INVENTION_SALVAGE_STRUCTURAL_DIAGNOSTICS_V1
+# FIELD_CRAFTER_INVENTION_SALVAGE_STRUCTURAL_DIAGNOSTICS_V2
 #
 # Diagnostic only. Nothing in this module is used by the production reader to
 # adopt or persist a memory layout.
@@ -823,6 +826,7 @@ def _joint_header_entry_hypotheses(
             entries,
             total,
             profile,
+            kind=kind,
         )
         quantity_candidates = (
             quantity_scan.get("exact_header_reproduction_candidates") or []
@@ -1157,8 +1161,45 @@ def _entry_pointers(
             break
         if not pointer:
             break
+        # ReadProcessMemory is only meaningful for canonical user-mode pointers.
+        # CoH's collection arrays can contain allocator poison such as
+        # 0xDEDEDEDEDEDEDEDE after the live logical entries; treat that as the
+        # end of the usable diagnostic prefix instead of feeding it into layout scans.
+        if pointer < 0x10000 or pointer > 0x00007FFFFFFFFFFF:
+            break
         pointers.append(pointer)
     return pointers
+
+
+def _salvage_memberships_for_entries(
+    mem,
+    entries: list[int],
+    profile: MemoryProfile,
+    *,
+    definition_offset: int,
+    name_offset: int,
+) -> list[bool] | None:
+    """Decode salvage ids once so quantity scans can reproduce invention total."""
+    max_string = as_int(profile.validation()["max_internal_string"])
+    memberships: list[bool] = []
+    for entry in entries:
+        try:
+            definition = int(mem.qword(entry + definition_offset))
+            if not definition:
+                return None
+            name_ptr = int(mem.qword(definition + name_offset))
+            if not name_ptr:
+                return None
+            name = mem.cstring(name_ptr, max_string).strip()
+        except Exception:
+            return None
+        if not name or not _INTERNAL_NAME_RE.fullmatch(name):
+            return None
+        membership = default_invention_salvage_membership(name)
+        if membership is None:
+            return None
+        memberships.append(bool(membership))
+    return memberships
 
 
 def _scan_quantity_offsets(
@@ -1166,16 +1207,46 @@ def _scan_quantity_offsets(
     entries: list[int],
     total: int,
     profile: MemoryProfile,
+    *,
+    kind: str | None = None,
+    definition_offset: int | None = None,
+    name_offset: int | None = None,
 ) -> dict[str, Any]:
-    expected = as_int(profile.structure("entries")["quantity_offset"])
-    candidates: list[dict[str, Any]] = []
+    cfg = profile.structure("entries")
+    expected = as_int(cfg["quantity_offset"])
+    semantic_memberships: list[bool] | None = None
+    normalized_kind = str(kind or "").casefold()
+    if normalized_kind in {"salvage", "salvages"}:
+        semantic_memberships = _salvage_memberships_for_entries(
+            mem,
+            entries,
+            profile,
+            definition_offset=(
+                int(definition_offset)
+                if definition_offset is not None
+                else as_int(cfg["definition_pointer_offset"])
+            ),
+            name_offset=(
+                int(name_offset)
+                if name_offset is not None
+                else as_int(cfg["internal_name_pointer_offset"])
+            ),
+        )
 
+    candidates: list[dict[str, Any]] = []
     for offset in _offset_candidates(expected, ENTRY_FIELD_WINDOW, 4):
         quantity_sum = 0
         used = 0
+        ignored = 0
         plausible = True
         values: list[int] = []
-        for entry in entries:
+        for index, entry in enumerate(entries):
+            if (
+                semantic_memberships is not None
+                and not semantic_memberships[index]
+            ):
+                ignored += 1
+                continue
             try:
                 value = int(mem.u32(entry + offset))
             except Exception:
@@ -1187,7 +1258,12 @@ def _scan_quantity_offsets(
             values.append(value)
             quantity_sum += value
             used += 1
-            if quantity_sum >= total:
+            if semantic_memberships is None and quantity_sum >= total:
+                # Preserve the pre-hotfix structural-only behavior when no
+                # invention-salvage semantic classifier is available.
+                break
+            if semantic_memberships is not None and quantity_sum > total:
+                plausible = False
                 break
         exact = bool(plausible and quantity_sum == total and used > 0)
         if exact:
@@ -1197,8 +1273,13 @@ def _scan_quantity_offsets(
                 "quantity_sum": quantity_sum,
                 "entries_used": used,
                 "sample_values": values[:12],
+                "semantic_quantity_filter": (
+                    "canonical_invention_salvage"
+                    if semantic_memberships is not None
+                    else "structural_all_entries"
+                ),
+                "ignored_non_invention_entries": ignored,
             })
-
     candidates.sort(
         key=lambda item: (
             abs(int(item["delta_from_expected"])),
@@ -1209,6 +1290,7 @@ def _scan_quantity_offsets(
         "expected_offset": _hex(expected),
         "window_bytes_each_direction": ENTRY_FIELD_WINDOW,
         "step": 4,
+        "semantic_quantity_filter_available": semantic_memberships is not None,
         "exact_header_reproduction_candidates": candidates[:MAX_QUANTITY_CANDIDATES],
         "clear_winner": len(candidates) == 1,
         "winner": candidates[0] if len(candidates) == 1 else None,
@@ -1217,7 +1299,6 @@ def _scan_quantity_offsets(
             else ("no_exact_quantity_offset" if not candidates else "quantity_offsets_ambiguous")
         ),
     }
-
 
 def _scan_definition_name_pairs(
     mem,
@@ -1455,7 +1536,6 @@ def _scan_entry_layout(
             "available": False,
             "reason": "no_populated_raw_inventory_header",
         }
-
     array_text = header.get("collection_pointer")
     array = int(str(array_text), 0) if array_text else 0
     total = int(header.get("total") or 0)
@@ -1469,17 +1549,36 @@ def _scan_entry_layout(
             "reason": "too_few_entry_pointers",
         }
 
+    pair_kind = "recipe" if kind == "recipes" else "salvage"
+    pair = _scan_definition_name_pairs(
+        mem,
+        entries,
+        profile,
+        kind=pair_kind,
+    )
+    pair_winner = pair.get("_winner_internal") or {}
+    definition_offset = None
+    name_offset = None
+    if pair_winner:
+        try:
+            definition_offset = int(
+                str(pair_winner["definition_pointer_offset"]), 0
+            )
+            name_offset = int(
+                str(pair_winner["internal_name_pointer_offset"]), 0
+            )
+        except Exception:
+            definition_offset = None
+            name_offset = None
+
     quantity = _scan_quantity_offsets(
         mem,
         entries,
         total,
         profile,
-    )
-    pair = _scan_definition_name_pairs(
-        mem,
-        entries,
-        profile,
-        kind=("recipe" if kind == "recipes" else "salvage"),
+        kind=kind,
+        definition_offset=definition_offset,
+        name_offset=name_offset,
     )
     level = (
         _scan_recipe_level_offsets(mem, pair, profile)
@@ -1487,7 +1586,6 @@ def _scan_entry_layout(
         else None
     )
     pair.pop("_winner_internal", None)
-
     return {
         "kind": kind,
         "available": True,
@@ -1507,7 +1605,6 @@ def _scan_entry_layout(
         "definition_and_name_offset_scan": pair,
         "recipe_level_offset_scan": level,
     }
-
 
 def collect_structural_drift_evidence(
     mem,
