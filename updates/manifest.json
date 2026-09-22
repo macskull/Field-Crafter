@@ -15,7 +15,7 @@
   "minimum_updater_version": "1.16.1",
   "release_url": "https://github.com/macskull/Field-Crafter/releases/tag/v1.16.2",
   "schema_version": 1,
-  "signature": "bRWKWOBiDWk60Z7OgsVmDmw22S8c88ATT8/TpB0drYLfVoQhwXgToU5iYUEMNoMTy3W8xMOmLsGn3F3eZf8aBQ==",
-  "summary": "Field Crafter 1.16.2 updates game-memory reading for current Live and Open Beta clients and adds the schema-v2 memory resolver framework.",
+  "signature": "4BQNff7fmDbz7bl1PiFP+V/dshYswKascGEM1FLcJycJX0Imda5m7XmhkUoJ40Bv9l1hJ3/eZxkzW3A+RKbeDw==",
+  "summary": "Field Crafter 1.16.2 updates game-memory reading for current Live and Open Beta clients. Portable EXE users updating from 1.16.1: the automatic restart may show a missing python313.dll error. If that specific error appears, close the dialog and launch Field Crafter again manually; 1.16.2 should then start and finalize the update normally.",
   "version": "1.16.2"
 }
