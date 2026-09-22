@@ -185,8 +185,8 @@ def main() -> int:
         config = load_json(root / "data" / "memory_update_config.json")
         pack = load_json(root / "data" / "memory_profiles.json")
 
-        if summary.get("release_version") != "1.16":
-            raise RuntimeError("Release data is not for Field Crafter 1.16.")
+        if summary.get("release_version") != release_version(root):
+            raise RuntimeError(f"Release data is not for Field Crafter {release_version(root)}.")
         if not summary.get("release_data_ready") or not summary.get("redistribution_ready"):
             raise RuntimeError(
                 "Release data is not marked ready/redistribution-ready."
@@ -365,7 +365,7 @@ def main() -> int:
         result.update(
             {
                 "passed": True,
-                "release_version": "1.16",
+                "release_version": release_version(root),
                 "channel": channel,
                 "pack_version": pack_version,
                 "output_dir": str(output_dir),
