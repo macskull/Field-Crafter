@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "channel": "public-test",
-  "pack_version": "2026.09.01.1",
-  "min_field_crafter_version": "1.16",
-  "pack_url": "https://raw.githubusercontent.com/macskull/Field-Crafter/main/memory/field-crafter-memory-definitions-2026.09.01.1.json",
-  "pack_sha256": "dc240a13c7135317783988e668bd56b51b68a78f2fbbec104b75d3bab01b9db3",
-  "signature": "RQKIUBAcWgylkEsm7HnxI+dzVYT+HopoMdRj27Zn5NAJNgDJWYXKjYQwiDRUJZkQEUPcdql9YK3yr7jO+je1Aw=="
+  "pack_version": "2026.09.21.1",
+  "min_field_crafter_version": "1.16.2",
+  "pack_url": "https://raw.githubusercontent.com/macskull/Field-Crafter/main/memory/field-crafter-memory-definitions-2026.09.21.1.json",
+  "pack_sha256": "290629d20326dbe3383b736595d60197b323f0801201e9494f4f1a99c05f0209",
+  "signature": "HApIV9SbU44J+Fx5ua2o+etJzIbcOd3rBHG8ZPioPaHSuOHvXUHn1yz5sm1/mwEv7Ws1IbsiBfa/r+BFK9EDDQ=="
 }
