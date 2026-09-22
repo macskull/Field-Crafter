@@ -4,7 +4,7 @@ param(
 
     [string]$Root = (Get-Location).Path,
 
-    [string]$Summary = "Field Crafter 1.16.2 updates game-memory reading for current Live and Open Beta clients and adds the schema-v2 memory resolver framework."
+    [string]$Summary = "Field Crafter 1.16.2 updates game-memory reading for current Live and Open Beta clients. Portable EXE users updating from 1.16.1: the automatic restart may show a missing python313.dll error. If that specific error appears, close the dialog and launch Field Crafter again manually; 1.16.2 should then start and finalize the update normally."
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,10 +78,27 @@ foreach ($Artifact in @($ExpectedExe, $ExpectedPython, (Join-Path $Dist "SHA256S
     }
 }
 
-# Protect the currently published manifest until the new GitHub assets exist.
+# Accept either the original 1.16.1 predecessor manifest or the already-published
+# 1.16.2 manifest. If 1.16.2 is already live, require it to reference the exact
+# same release artifacts before allowing a summary/signature-only republication.
 $CurrentLiveManifest = Get-Content $LiveManifestPath -Raw | ConvertFrom-Json
-if ([string]$CurrentLiveManifest.version -ne "1.16.1") {
-    Fail "updates\manifest.json is no longer the expected published 1.16.1 manifest. Refusing to continue automatically."
+$CurrentLiveVersion = [string]$CurrentLiveManifest.version
+
+if ($CurrentLiveVersion -notin @("1.16.1", "1.16.2")) {
+    Fail "updates\manifest.json reports unexpected version $CurrentLiveVersion. Refusing to continue automatically."
+}
+
+if ($CurrentLiveVersion -eq "1.16.2") {
+    $DistExeHash = (Get-FileHash $ExpectedExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    $DistPythonHash = (Get-FileHash $ExpectedPython -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    if ([string]$CurrentLiveManifest.artifacts.exe.sha256 -ne $DistExeHash) {
+        Fail "Published 1.16.2 EXE hash does not match the validated dist artifact. Refusing to regenerate the manifest."
+    }
+
+    if ([string]$CurrentLiveManifest.artifacts.python.sha256 -ne $DistPythonHash) {
+        Fail "Published 1.16.2 Python ZIP hash does not match the validated dist artifact. Refusing to regenerate the manifest."
+    }
 }
 
 $Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json

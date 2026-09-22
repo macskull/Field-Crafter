@@ -11,6 +11,7 @@ from hc_recipe_db.application_updates import (
     ApplicationUpdateError,
     _canonical_manifest_bytes,
     _is_newer_version,
+    _powershell_helper_text,
     _safe_extract_python_release,
     _version_at_least,
     check_for_application_update,
@@ -120,6 +121,18 @@ def test_python_archive_validation() -> None:
             raise AssertionError("Unsafe Python update ZIP was accepted")
 
 
+def test_exe_restart_resets_pyinstaller_environment() -> None:
+    helper = _powershell_helper_text()
+
+    assert "function Start-FieldCrafter" in helper
+    assert '$env:PYINSTALLER_RESET_ENVIRONMENT = "1"' in helper
+
+    # Both the successful-update restart and rollback restart must go through
+    # the environment-reset wrapper. No direct target restart may bypass it.
+    assert helper.count("Start-FieldCrafter $target") == 2
+    assert "Start-Process -FilePath $target" not in helper
+
+
 def test_development_checkout_does_not_self_replace() -> None:
     result = check_for_application_update()
     # This test runs from the maintainer source tree, where self-update must never
@@ -132,6 +145,7 @@ def main() -> int:
     test_manifest_signature()
     test_version_comparison()
     test_python_archive_validation()
+    test_exe_restart_resets_pyinstaller_environment()
     test_development_checkout_does_not_self_replace()
     print("PASS: Field Crafter application-update unit tests passed.")
     return 0

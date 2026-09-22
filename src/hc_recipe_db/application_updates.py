@@ -614,6 +614,14 @@ def _base_python_launcher(target_root: Path) -> Path:
 def _powershell_helper_text() -> str:
     return r'''param([Parameter(Mandatory=$true)][string]$PlanPath)
 $ErrorActionPreference = "Stop"
+
+function Start-FieldCrafter([string]$Path) {
+    # A restarted PyInstaller one-file application must not inherit the
+    # previous process's temporary _MEI application environment.
+    $env:PYINSTALLER_RESET_ENVIRONMENT = "1"
+    Start-Process -FilePath $Path -WorkingDirectory (Split-Path -Parent $Path)
+}
+
 $plan = Get-Content -LiteralPath $PlanPath -Raw | ConvertFrom-Json
 $ready = [string]$plan.ready_path
 $readyDir = Split-Path -Parent $ready
@@ -652,14 +660,14 @@ try {
     $stateDir = Split-Path -Parent $statePath
     if ($stateDir) { New-Item -ItemType Directory -Force $stateDir | Out-Null }
     $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding UTF8
-    Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target)
+    Start-FieldCrafter $target
 } catch {
     if ($backupCreated) {
         try {
             if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force }
             if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $target }
         } catch { }
-        try { if (Test-Path -LiteralPath $target) { Start-Process -FilePath $target -WorkingDirectory (Split-Path -Parent $target) } } catch { }
+        try { if (Test-Path -LiteralPath $target) { Start-FieldCrafter $target } } catch { }
     }
     throw
 }

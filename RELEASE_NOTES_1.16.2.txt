@@ -53,6 +53,14 @@ APPLICATION UPDATES
   allowing 1.16.1 users to install 1.16.2 in place without a manual reinstall.
 - Updated the new resolver/profile support so future compatible signature or layout
   drift can again be delivered as signed memory-definition updates when possible.
+- Hardened the 1.16.2 source for future portable-EXE application updates so the
+  generated restart helper forces a fresh PyInstaller extraction environment
+  instead of inheriting the previous process's temporary _MEI runtime. This source
+  hardening does not alter the already-published 1.16.2 release artifacts.
+- Added a signed update warning for the 1.16.1-to-1.16.2 portable-EXE transition:
+  if the automatic restart reports a missing python313.dll, close the dialog and
+  launch Field Crafter again manually; the installed 1.16.2 build will then
+  finalize the update normally.
 
 RELEASE VALIDATION
 ------------------
