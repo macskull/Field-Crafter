@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 ALLOWED_RESOLVERS = {
     "identity_xyz_relative_v1",
     "rip_relative_cstring_v1",
     "roster_builder_v1",
+    "direct_local_player_v1",
+    "entity_table_v1",
 }
 
 
@@ -142,6 +144,25 @@ class MemoryProfile:
             )
         return value
 
+    def inventory_layouts(self) -> tuple[dict[str, Any], ...]:
+        character = self.structure("character")
+        raw = character.get("inventory_layouts")
+        if isinstance(raw, list) and raw:
+            return tuple(item for item in raw if isinstance(item, dict))
+        salvage = character.get("salvage")
+        recipes = character.get("recipes")
+        if isinstance(salvage, dict) and isinstance(recipes, dict):
+            return ({
+                "id": "default",
+                "salvage": salvage,
+                "recipes": recipes,
+            },)
+        return ()
+
+    def uses_direct_player_resolver(self) -> bool:
+        locators = self.data.get("locators") or {}
+        return isinstance(locators, dict) and "player" in locators and "entity_table" in locators
+
 
 def _require_dict(value: Any, field: str) -> dict[str, Any]:
     if not isinstance(value, dict):
@@ -179,9 +200,30 @@ def _validate_locator(name: str, value: Any) -> None:
             "count_disp_offset", "count_instruction_end",
         ):
             _require_offset(block, key, f"locators.{name}")
+    elif resolver == "direct_local_player_v1":
+        for key in (
+            "primary_disp_offset", "primary_instruction_end",
+            "fallback_disp_offset", "fallback_instruction_end",
+            "selector_disp_offset", "selector_instruction_end",
+            "alternate_disp_offset", "alternate_instruction_end",
+            "alternate2_disp_offset", "alternate2_instruction_end",
+        ):
+            _require_offset(block, key, f"locators.{name}")
+    elif resolver == "entity_table_v1":
+        for key in (
+            "count_disp_offset", "count_instruction_end",
+            "flags_disp_offset", "flags_instruction_end", "flags_target_adjust",
+            "table_disp_offset", "table_instruction_end", "table_target_adjust",
+        ):
+            _require_offset(block, key, f"locators.{name}")
 
 
-def _validate_profile(raw: Any, *, source: str) -> MemoryProfile:
+def _validate_inventory_block(block: dict[str, Any], field: str) -> None:
+    for key in ("collection_offset", "capacity_offset", "count_offset"):
+        _require_offset(block, key, field)
+
+
+def _validate_profile(raw: Any, *, source: str, schema_version: int) -> MemoryProfile:
     profile = _require_dict(raw, "profile")
     profile_id = str(profile.get("id") or "").strip()
     profile_version = str(profile.get("profile_version") or "").strip()
@@ -191,40 +233,88 @@ def _validate_profile(raw: Any, *, source: str) -> MemoryProfile:
         raise MemoryProfileError(f"Profile {profile_id!r} is missing profile_version")
 
     locators = _require_dict(profile.get("locators"), f"{profile_id}.locators")
-    for required in ("identity", "server", "roster"):
+    if schema_version >= 2:
+        required_locators = ("player", "entity_table", "server")
+    else:
+        required_locators = ("identity", "server", "roster")
+    for required in required_locators:
         if required not in locators:
             raise MemoryProfileError(f"Profile {profile_id!r} is missing {required!r} locator")
-        _validate_locator(required, locators[required])
+    for name, locator in locators.items():
+        _validate_locator(str(name), locator)
 
     structures = _require_dict(profile.get("structures"), f"{profile_id}.structures")
     entity = _require_dict(structures.get("entity"), f"{profile_id}.structures.entity")
     character = _require_dict(structures.get("character"), f"{profile_id}.structures.character")
     entries = _require_dict(structures.get("entries"), f"{profile_id}.structures.entries")
-    salvage = _require_dict(character.get("salvage"), f"{profile_id}.structures.character.salvage")
-    recipes = _require_dict(character.get("recipes"), f"{profile_id}.structures.character.recipes")
-    roster = _require_dict(structures.get("roster"), f"{profile_id}.structures.roster")
 
-    for block, field, keys in (
-        (roster, "structures.roster", ("record_stride", "name_offset", "entity_pointer_offset")),
-        (entity, "structures.entity", ("name_offset", "character_pointer_offset")),
-        (character, "structures.character",
-         ("current_hp_offset", "current_end_offset", "max_hp_offset", "max_end_offset")),
-        (salvage, "structures.character.salvage",
-         ("collection_offset", "capacity_offset", "count_offset")),
-        (recipes, "structures.character.recipes",
-         ("collection_offset", "capacity_offset", "count_offset")),
-        (entries, "structures.entries",
-         ("definition_pointer_offset", "quantity_offset", "internal_name_pointer_offset",
-          "recipe_level_offset")),
+    if schema_version >= 2:
+        for key in ("index_offset", "name_offset", "character_pointer_offset"):
+            _require_offset(entity, key, "structures.entity")
+        for key in (
+            "trained_level_offset", "powerset_array_offset", "earray_count_from_data_offset",
+            "current_hp_offset", "current_end_offset", "max_hp_offset", "max_end_offset",
+        ):
+            _require_offset(character, key, "structures.character")
+        raw_layouts = character.get("inventory_layouts")
+        if not isinstance(raw_layouts, list) or not raw_layouts:
+            raise MemoryProfileError(
+                f"Profile {profile_id!r} must define a non-empty character.inventory_layouts array"
+            )
+        seen_layouts: set[str] = set()
+        for index, raw_layout in enumerate(raw_layouts):
+            layout = _require_dict(raw_layout, f"{profile_id}.structures.character.inventory_layouts[{index}]")
+            layout_id = str(layout.get("id") or "").strip()
+            if not layout_id or layout_id in seen_layouts:
+                raise MemoryProfileError(
+                    f"Profile {profile_id!r} has a missing/duplicate inventory layout id"
+                )
+            seen_layouts.add(layout_id)
+            salvage = _require_dict(layout.get("salvage"), f"{profile_id}.inventory_layouts[{index}].salvage")
+            recipes = _require_dict(layout.get("recipes"), f"{profile_id}.inventory_layouts[{index}].recipes")
+            _validate_inventory_block(salvage, f"inventory_layouts[{index}].salvage")
+            _validate_inventory_block(recipes, f"inventory_layouts[{index}].recipes")
+        # Compatibility aliases keep the bounded v1 recovery/diagnostic modules usable
+        # until they are fully retired. They must match one declared layout.
+        salvage = _require_dict(character.get("salvage"), f"{profile_id}.structures.character.salvage")
+        recipes = _require_dict(character.get("recipes"), f"{profile_id}.structures.character.recipes")
+        _validate_inventory_block(salvage, "structures.character.salvage")
+        _validate_inventory_block(recipes, "structures.character.recipes")
+        if "roster" in structures:
+            roster = _require_dict(structures.get("roster"), f"{profile_id}.structures.roster")
+            for key in ("record_stride", "name_offset", "entity_pointer_offset"):
+                _require_offset(roster, key, "structures.roster")
+    else:
+        roster = _require_dict(structures.get("roster"), f"{profile_id}.structures.roster")
+        salvage = _require_dict(character.get("salvage"), f"{profile_id}.structures.character.salvage")
+        recipes = _require_dict(character.get("recipes"), f"{profile_id}.structures.character.recipes")
+        for block, field, keys in (
+            (roster, "structures.roster", ("record_stride", "name_offset", "entity_pointer_offset")),
+            (entity, "structures.entity", ("name_offset", "character_pointer_offset")),
+            (character, "structures.character",
+             ("current_hp_offset", "current_end_offset", "max_hp_offset", "max_end_offset")),
+        ):
+            for key in keys:
+                _require_offset(block, key, field)
+        _validate_inventory_block(salvage, "structures.character.salvage")
+        _validate_inventory_block(recipes, "structures.character.recipes")
+
+    for key in (
+        "definition_pointer_offset", "quantity_offset", "internal_name_pointer_offset",
+        "recipe_level_offset",
     ):
-        for key in keys:
-            _require_offset(block, key, field)
+        _require_offset(entries, key, "structures.entries")
 
     validation = _require_dict(profile.get("validation"), f"{profile_id}.validation")
-    for key in (
-        "max_roster_count", "max_inventory_capacity", "max_collection_entries",
+    required_validation = [
+        "max_inventory_capacity", "max_collection_entries",
         "max_internal_string", "max_recipe_level",
-    ):
+    ]
+    if schema_version == 1:
+        required_validation.append("max_roster_count")
+    else:
+        required_validation.extend(("max_entity_count", "max_powerset_count"))
+    for key in required_validation:
         if key not in validation:
             raise MemoryProfileError(f"{profile_id}.validation.{key} is required")
         value = as_int(validation[key], field=f"{profile_id}.validation.{key}")
@@ -239,7 +329,6 @@ def _validate_profile(raw: Any, *, source: str) -> MemoryProfile:
         data=profile,
     )
 
-
 def load_profile_pack(path: str | Path, *, source: str) -> tuple[str, list[MemoryProfile]]:
     path = Path(path)
     try:
@@ -248,9 +337,10 @@ def load_profile_pack(path: str | Path, *, source: str) -> tuple[str, list[Memor
         raise MemoryProfileError(f"Could not read memory profile pack {path}: {exc}") from exc
     pack = _require_dict(raw, "memory profile pack")
     schema = as_int(pack.get("schema_version"), field="schema_version")
-    if schema != SUPPORTED_SCHEMA_VERSION:
+    if schema not in SUPPORTED_SCHEMA_VERSIONS:
+        allowed = ", ".join(str(x) for x in sorted(SUPPORTED_SCHEMA_VERSIONS))
         raise MemoryProfileError(
-            f"Unsupported memory profile schema {schema}; expected {SUPPORTED_SCHEMA_VERSION}"
+            f"Unsupported memory profile schema {schema}; expected one of: {allowed}"
         )
     pack_version = str(pack.get("pack_version") or "").strip()
     if not pack_version:
@@ -258,7 +348,7 @@ def load_profile_pack(path: str | Path, *, source: str) -> tuple[str, list[Memor
     raw_profiles = pack.get("profiles")
     if not isinstance(raw_profiles, list) or not raw_profiles:
         raise MemoryProfileError("memory profile pack must contain a non-empty profiles array")
-    profiles = [_validate_profile(item, source=source) for item in raw_profiles]
+    profiles = [_validate_profile(item, source=source, schema_version=schema) for item in raw_profiles]
     return pack_version, profiles
 
 
@@ -301,8 +391,8 @@ class MemoryProfileManager:
         source_rank = {"user": 0, "bundled": 1}
         candidates.sort(
             key=lambda p: (
-                source_rank.get(p.source, 9),
                 -p.priority,
+                source_rank.get(p.source, 9),
                 p.profile_id,
                 p.profile_version,
             )

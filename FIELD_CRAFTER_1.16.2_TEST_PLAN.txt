@@ -1,0 +1,125 @@
+FIELD CRAFTER 1.16.2 WINDOWS VALIDATION / RELEASE PLAN
+======================================================
+
+Purpose
+-------
+Validate the new read-only local-player resolver and dual inventory-layout support
+on current Homecoming Live and Open Beta before publishing 1.16.2.
+
+Important release constraints
+-----------------------------
+- Do NOT replace updates/manifest.json before the real 1.16.2 release artifacts
+  have been built, hashed, signed, and uploaded to GitHub.
+- Do NOT replace memory/manifest.json until the schema-v2 memory pack has been
+  signed for publication.
+- Do NOT copy a private signing key into this source tree or any release ZIP.
+- Existing 1.16.1 installations must remain able to install 1.16.2 through the
+  already-trusted signed application-update channel.
+
+1. Python development validation
+--------------------------------
+On Windows, activate the normal development environment or otherwise use the
+same 64-bit Python runtime used for Field Crafter development.
+
+Run these gates from the project root:
+
+  python tools\\test_direct_player_inventory_v8.py
+  python tools\\test_memory_profile_schema_v2.py
+  python tools\\test_invention_salvage_classification_v1.py
+  python tools\\test_application_updates_v1.py
+  python tools\\validate_release_documentation_v3.py
+  python validate_release_data.py
+  python release_self_test.py
+
+All must pass.
+
+2. Run Field Crafter from source on CURRENT LIVE
+------------------------------------------------
+Use a trained level-50 character if convenient, with at least a few invention
+salvage and recipes in inventory.
+
+Verify:
+- the process/character selector identifies the correct character;
+- game-memory import succeeds;
+- recipes and invention salvage quantities match the game;
+- non-invention S_* items are not counted as invention salvage;
+- Review & Edit and Shopping List behave normally;
+- Create memory diagnostic completes successfully.
+- user-facing status/error text does not expose the Windows profile username;
+- the diagnostic ZIP contains no Windows user-profile path components/usernames.
+
+Expected layout selection on the current pre-patch Live client:
+  pre_patch_2026_09
+  salvage header +0x1428
+  recipe header  +0x1478
+
+3. Run Field Crafter from source on CURRENT OPEN BETA
+-----------------------------------------------------
+Repeat the same validation against the patched Open Beta client.
+
+Expected layout selection on the current Open Beta client:
+  post_beta_2026_09_plus_0x10
+  salvage header +0x1438
+  recipe header  +0x1488
+
+The obsolete identity signature may have zero hits on Beta. That is diagnostic
+only and must not prevent a valid import.
+
+4. Negative/fail-closed checks
+------------------------------
+Where practical, confirm diagnostics fail cleanly rather than silently selecting
+an unproven root/layout when:
+- no valid local player Entity can be proven;
+- Entity-table proof is ambiguous;
+- neither known inventory layout validates;
+- recipe or salvage validation is partial/ambiguous.
+
+5. Build the Windows release candidate
+--------------------------------------
+Use the canonical release builder. Because the release data in this source tree
+has already been prepared/validated, the intended first test build is:
+
+  powershell -ExecutionPolicy Bypass -File .\\build_release.ps1 -SkipRefresh
+
+Review the builder output and release_stage contents. Do not publish yet.
+
+6. Test the built EXE and prepared Python ZIP
+---------------------------------------------
+Repeat the Live and Open Beta import tests with the packaged EXE. Also launch
+and smoke-test the prepared Python distribution if the release builder creates
+one.
+
+7. Publish GitHub release assets
+--------------------------------
+Only after the Windows RC passes:
+- publish/tag v1.16.2 using GITHUB_RELEASE_1.16.2.md/json;
+- upload Field_Crafter_1.16.2.exe and Field_Crafter_1.16.2_Python.zip plus the
+  generated hashes/manifest artifacts from the release process.
+
+8. Publish the signed APPLICATION update manifest
+-------------------------------------------------
+Use the existing maintainer application-update publishing workflow and the
+external private application-update signing key. The configured public key was
+intentionally preserved from 1.16.1.
+
+The manifest for 1.16.2 must retain:
+  minimum_updater_version = 1.16.1
+
+After publication, test "Check for app updates" from a stock 1.16.1 install and
+confirm it authenticates, downloads, and installs 1.16.2 in place.
+
+9. Publish schema-v2 MEMORY definitions (optional after app release)
+--------------------------------------------------------------------
+After 1.16.2 is public, the schema-v2 memory pack can be published through the
+separately signed memory-definition channel. Its minimum Field Crafter version
+must be 1.16.2 so stock 1.16.1 cannot download a profile schema it does not know
+how to parse.
+
+10. Final updater checks
+------------------------
+From 1.16.2 verify both buttons/flows:
+- Check for app updates
+- Check for memory-definition updates
+
+A future compatible signature/offset-only patch should normally be serviceable
+through the memory-definition channel without replacing the application.

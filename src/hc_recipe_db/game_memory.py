@@ -33,6 +33,9 @@ from .memory_profiles import (
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_RECOVERY_V7_1
 # FIELD_CRAFTER_INVENTION_SALVAGE_CLASSIFICATION_V1
 # FIELD_CRAFTER_INVENTION_SALVAGE_CLASSIFICATION_V2
+# FIELD_CRAFTER_DIRECT_PLAYER_RESOLVER_V8
+# FIELD_CRAFTER_MULTI_INVENTORY_LAYOUT_V8
+# FIELD_CRAFTER_DYNAMIC_CAPACITY_V8
 # Memory locations/structure offsets are now declarative and profile-driven.
 # Fixed RVAs are intentionally not retained here.
 
@@ -488,6 +491,166 @@ def _character_vitals_plausible(
     )
 
 
+def _plausible_user_pointer(value: int) -> bool:
+    value = int(value or 0)
+    return 0x10000 <= value < 0x0000800000000000
+
+
+def _resolve_direct_player(
+    mem: ProcessMemory,
+    profile: MemoryProfile,
+) -> tuple[str, int, int]:
+    player = profile.locator("player")
+    entity_table = profile.locator("entity_table")
+    entity_cfg = profile.structure("entity")
+    character_cfg = profile.structure("character")
+    validation = profile.validation()
+
+    player_hits = mem.signature_hits(str(player["pattern"]))
+    if len(player_hits) != 1:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} direct-player locator expected exactly one "
+            f"signature hit, found {len(player_hits)}."
+        )
+    match = player_hits[0]
+
+    def target(locator: dict[str, Any], disp_key: str, end_key: str, adjust: int = 0) -> int:
+        return _rip_relative_target_rva(
+            mem, match,
+            disp_offset=as_int(locator[disp_key]),
+            instruction_end=as_int(locator[end_key]),
+            target_adjust=adjust,
+        )
+
+    primary_rva = target(player, "primary_disp_offset", "primary_instruction_end")
+    fallback_rva = target(player, "fallback_disp_offset", "fallback_instruction_end")
+    selector_rva = target(player, "selector_disp_offset", "selector_instruction_end")
+    alternate_rva = target(player, "alternate_disp_offset", "alternate_instruction_end")
+    alternate2_rva = target(player, "alternate2_disp_offset", "alternate2_instruction_end")
+    if alternate_rva != alternate2_rva:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} direct-player alternate globals disagree."
+        )
+    for label, rva in (
+        ("primary", primary_rva), ("fallback", fallback_rva),
+        ("selector", selector_rva), ("alternate", alternate_rva),
+    ):
+        if not (0 < rva < mem.module_size):
+            raise GameMemoryError(
+                f"Profile {profile.profile_id} decoded an implausible {label} global RVA."
+            )
+
+    primary = mem.qword(mem.base + primary_rva)
+    fallback = mem.qword(mem.base + fallback_rva)
+    selector = mem.i32(mem.base + selector_rva)
+    alternate = mem.qword(mem.base + alternate_rva)
+    if primary:
+        entity = primary
+    elif selector > 0:
+        entity = alternate
+    else:
+        entity = fallback
+    if not _plausible_user_pointer(entity):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} direct-player source selected an implausible Entity pointer."
+        )
+
+    table_hits = mem.signature_hits(str(entity_table["pattern"]))
+    if len(table_hits) != 1:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} Entity-table locator expected exactly one "
+            f"signature hit, found {len(table_hits)}."
+        )
+    table_match = table_hits[0]
+    count_rva = _rip_relative_target_rva(
+        mem, table_match,
+        disp_offset=as_int(entity_table["count_disp_offset"]),
+        instruction_end=as_int(entity_table["count_instruction_end"]),
+    )
+    flags_rva = _rip_relative_target_rva(
+        mem, table_match,
+        disp_offset=as_int(entity_table["flags_disp_offset"]),
+        instruction_end=as_int(entity_table["flags_instruction_end"]),
+        target_adjust=as_int(entity_table.get("flags_target_adjust", 0)),
+    )
+    table_rva = _rip_relative_target_rva(
+        mem, table_match,
+        disp_offset=as_int(entity_table["table_disp_offset"]),
+        instruction_end=as_int(entity_table["table_instruction_end"]),
+        target_adjust=as_int(entity_table.get("table_target_adjust", 0)),
+    )
+    for label, rva in (("count", count_rva), ("flags", flags_rva), ("table", table_rva)):
+        if not (0 < rva < mem.module_size):
+            raise GameMemoryError(
+                f"Profile {profile.profile_id} decoded an implausible Entity-table {label} RVA."
+            )
+
+    max_entities = as_int(validation["max_entity_count"])
+    raw_count = mem.i32(mem.base + count_rva)
+    if not (1 <= raw_count <= max_entities):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} Entity-table count is implausible ({raw_count})."
+        )
+    table_raw = mem.read(mem.base + table_rva, raw_count * 8)
+    entity_bytes = int(entity).to_bytes(8, "little", signed=False)
+    indices = [
+        index for index in range(raw_count)
+        if table_raw[index * 8:(index + 1) * 8] == entity_bytes
+    ]
+    if len(indices) != 1:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} selected Entity appears {len(indices)} times "
+            "in the live Entity table."
+        )
+    table_index = indices[0]
+    active_flag = mem.read(mem.base + flags_rva + table_index, 1)[0]
+    if not (active_flag & 1):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} selected Entity is not active in the Entity table."
+        )
+    entity_index = mem.u32(entity + as_int(entity_cfg["index_offset"]))
+    if entity_index != table_index:
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} Entity index does not match the live Entity-table index."
+        )
+
+    character = mem.qword(entity + as_int(entity_cfg["character_pointer_offset"]))
+    if not _plausible_user_pointer(character):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} Entity -> Character pointer is implausible."
+        )
+    trained0 = mem.u32(character + as_int(character_cfg["trained_level_offset"]))
+    if not (0 <= trained0 <= 49):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} trained-level field is implausible ({trained0})."
+        )
+    powersets = mem.qword(character + as_int(character_cfg["powerset_array_offset"]))
+    if not _plausible_user_pointer(powersets):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} PowerSet EArray pointer is implausible."
+        )
+    powerset_count = mem.u32(
+        powersets + as_int(character_cfg["earray_count_from_data_offset"])
+    )
+    max_powersets = as_int(validation["max_powerset_count"])
+    if not (1 <= powerset_count <= max_powersets):
+        raise GameMemoryError(
+            f"Profile {profile.profile_id} PowerSet count is implausible ({powerset_count})."
+        )
+
+    character_name = ""
+    try:
+        candidate = mem.cstring(
+            entity + as_int(entity_cfg["name_offset"]),
+            as_int(validation.get("max_character_name", 96), field="max_character_name"),
+        ).strip()
+        if _valid_identity_string(candidate, max_len=95):
+            character_name = candidate
+    except Exception:
+        pass
+    return character_name, entity, character
+
+
 def _resolve_entity_character(
     mem: ProcessMemory,
     profile: MemoryProfile,
@@ -563,13 +726,25 @@ def _resolve_memory_context(
     require_server: bool = False,
 ) -> _ResolvedMemoryContext:
     failures: list[str] = []
-    for profile in manager.candidates():
+    candidates = manager.candidates()
+    # Once a direct-player profile is installed, legacy identity/roster profiles
+    # are telemetry/backward-compatibility data only. Do not silently downgrade
+    # the trust model if the authoritative resolver fails.
+    direct_candidates = tuple(p for p in candidates if p.uses_direct_player_resolver())
+    if direct_candidates:
+        candidates = direct_candidates
+    for profile in candidates:
         try:
-            character_name = _resolve_identity(mem, profile)
             server = _resolve_server(mem, profile, required=require_server)
-            entity, character = _resolve_entity_character(
-                mem, profile, character_name
-            )
+            if profile.uses_direct_player_resolver():
+                character_name, entity, character = _resolve_direct_player(mem, profile)
+            else:
+                # Backward-compatible support for signed schema-v1 packs. New
+                # Field Crafter profiles use the direct-player resolver above.
+                character_name = _resolve_identity(mem, profile)
+                entity, character = _resolve_entity_character(
+                    mem, profile, character_name
+                )
             return _ResolvedMemoryContext(
                 profile=profile,
                 character_name=character_name,
@@ -1019,16 +1194,18 @@ class GameInventoryReader:
         array: int,
         *,
         max_capacity: int,
+        minimum_capacity: int = 1,
     ) -> None:
-        if capacity < 0 or capacity > max_capacity:
+        # Capacity is a slot count. Total is the summed stack quantity, so total
+        # may legitimately exceed capacity and must never be compared against it.
+        if capacity < minimum_capacity or capacity > max_capacity:
             raise GameMemoryError(
-                f"{kind} capacity is implausible ({capacity}); "
-                "the game memory layout may have changed."
+                f"{kind} capacity is implausible ({capacity}); expected "
+                f"{minimum_capacity}..{max_capacity}. The game memory layout may have changed."
             )
-        if total < 0 or total > capacity:
+        if total < 0:
             raise GameMemoryError(
-                f"{kind} total {total} is inconsistent with capacity {capacity}; "
-                "the game memory layout may have changed."
+                f"{kind} total is implausible ({total}); the game memory layout may have changed."
             )
         if total > 0 and not array:
             raise GameMemoryError(
@@ -1042,59 +1219,80 @@ class GameInventoryReader:
         profile: MemoryProfile,
     ) -> tuple[int, int, list[MemoryRecipe], int, int, list[MemorySalvage]]:
         character = context.character_address
-        character_cfg = profile.structure("character")
-        recipe_cfg = character_cfg["recipes"]
-        salvage_cfg = character_cfg["salvage"]
         validation = profile.validation()
         max_capacity = as_int(validation["max_inventory_capacity"])
+        trained_level = None
+        character_cfg = profile.structure("character")
+        if "trained_level_offset" in character_cfg:
+            try:
+                trained0 = mem.u32(character + as_int(character_cfg["trained_level_offset"]))
+                if 0 <= trained0 <= 49:
+                    trained_level = trained0 + 1
+            except Exception:
+                trained_level = None
 
-        recipe_array = mem.qword(
-            character + as_int(recipe_cfg["collection_offset"])
-        )
-        recipe_capacity = mem.u32(
-            character + as_int(recipe_cfg["capacity_offset"])
-        )
-        recipe_total = mem.u32(
-            character + as_int(recipe_cfg["count_offset"])
-        )
-        salvage_array = mem.qword(
-            character + as_int(salvage_cfg["collection_offset"])
-        )
-        salvage_capacity = mem.u32(
-            character + as_int(salvage_cfg["capacity_offset"])
-        )
-        salvage_total = mem.u32(
-            character + as_int(salvage_cfg["count_offset"])
-        )
+        successes: list[tuple[str, tuple[int, int, list[MemoryRecipe], int, int, list[MemorySalvage]]]] = []
+        failures: list[str] = []
+        layouts = profile.inventory_layouts()
+        if not layouts:
+            raise GameMemoryError(
+                f"Profile {profile.profile_id} defines no inventory layouts."
+            )
 
-        self._validate_header(
-            "Recipe inventory",
-            recipe_capacity,
-            recipe_total,
-            recipe_array,
-            max_capacity=max_capacity,
-        )
-        self._validate_header(
-            "Salvage inventory",
-            salvage_capacity,
-            salvage_total,
-            salvage_array,
-            max_capacity=max_capacity,
-        )
+        for layout in layouts:
+            layout_id = str(layout.get("id") or "unnamed")
+            try:
+                recipe_cfg = layout["recipes"]
+                salvage_cfg = layout["salvage"]
+                recipe_array = mem.qword(character + as_int(recipe_cfg["collection_offset"]))
+                recipe_capacity = mem.u32(character + as_int(recipe_cfg["capacity_offset"]))
+                recipe_total = mem.u32(character + as_int(recipe_cfg["count_offset"]))
+                salvage_array = mem.qword(character + as_int(salvage_cfg["collection_offset"]))
+                salvage_capacity = mem.u32(character + as_int(salvage_cfg["capacity_offset"]))
+                salvage_total = mem.u32(character + as_int(salvage_cfg["count_offset"]))
 
-        recipes = self._read_recipes(
-            mem, recipe_array, recipe_total, profile
-        )
-        salvage = self._read_salvage(
-            mem, salvage_array, salvage_total, profile
-        )
-        return (
-            recipe_capacity,
-            recipe_total,
-            recipes,
-            salvage_capacity,
-            salvage_total,
-            salvage,
+                recipe_min = (
+                    as_int(validation.get("level_50_min_recipe_capacity", 1))
+                    if trained_level == 50 else 1
+                )
+                salvage_min = (
+                    as_int(validation.get("level_50_min_salvage_capacity", 1))
+                    if trained_level == 50 else 1
+                )
+                self._validate_header(
+                    "Recipe inventory", recipe_capacity, recipe_total, recipe_array,
+                    max_capacity=max_capacity, minimum_capacity=recipe_min,
+                )
+                self._validate_header(
+                    "Salvage inventory", salvage_capacity, salvage_total, salvage_array,
+                    max_capacity=max_capacity, minimum_capacity=salvage_min,
+                )
+
+                recipes = self._read_recipes(
+                    mem, recipe_array, recipe_total, profile, capacity=recipe_capacity
+                )
+                salvage = self._read_salvage(
+                    mem, salvage_array, salvage_total, profile, capacity=salvage_capacity
+                )
+                successes.append((
+                    layout_id,
+                    (recipe_capacity, recipe_total, recipes,
+                     salvage_capacity, salvage_total, salvage),
+                ))
+            except (GameMemoryError, KeyError, MemoryProfileError) as exc:
+                failures.append(f"{layout_id}: {exc}")
+
+        if len(successes) == 1:
+            return successes[0][1]
+        if len(successes) > 1:
+            ids = ", ".join(item[0] for item in successes)
+            raise GameMemoryError(
+                f"Multiple inventory layouts passed semantic validation ({ids}); "
+                "Field Crafter will not guess."
+            )
+        detail = "; ".join(failures[:6]) or "no layouts were evaluated"
+        raise GameMemoryError(
+            f"No known inventory layout passed semantic validation. {detail}"
         )
 
     def read(self, process: GameProcessInfo | int) -> MemoryInventorySnapshot:
@@ -1111,6 +1309,14 @@ class GameInventoryReader:
                 )
             except GameMemoryError as original_root_exc:
                 root_recovery_error = None
+                direct_profile_available = any(
+                    p.uses_direct_player_resolver()
+                    for p in self.profile_manager.candidates()
+                )
+                if direct_profile_available:
+                    # The direct local-player source is authoritative. Legacy
+                    # roster/identity recovery must never substitute for it.
+                    raise
 
                 if self.allow_root_recovery:
                     from .memory_root_recovery import (
@@ -1166,6 +1372,7 @@ class GameInventoryReader:
                         ) from original_root_exc
 
             profile = context.profile
+            modern_direct_profile = profile.uses_direct_player_resolver()
 
             try:
                 inventory = self._read_inventory_with_profile(
@@ -1173,6 +1380,11 @@ class GameInventoryReader:
                 )
             except GameMemoryError as original_exc:
                 session_failure = None
+                if modern_direct_profile:
+                    # Known signed inventory-layout variants are tested inside
+                    # _read_inventory_with_profile. Unknown-layout auto-learning is
+                    # intentionally not part of the first direct-resolver release.
+                    raise
 
                 if self.allow_session_recovery:
                     from .memory_recovery import (
@@ -1243,7 +1455,8 @@ class GameInventoryReader:
             # a zero total, v5.2 asks the existing bounded type-aware recovery layer
             # whether a populated moved collection can be positively proven nearby.
             if (
-                self.allow_session_recovery
+                (not modern_direct_profile)
+                and self.allow_session_recovery
                 and recovery_result is None
                 and (int(inventory[1]) == 0 or int(inventory[4]) == 0)
             ):
@@ -1411,13 +1624,16 @@ class GameInventoryReader:
         array: int,
         total: int,
         profile: MemoryProfile,
+        *,
+        capacity: int | None = None,
     ) -> list[MemoryRecipe]:
         if total == 0:
             return []
 
         entry_cfg = profile.structure("entries")
         validation = profile.validation()
-        max_entries = as_int(validation["max_collection_entries"])
+        safety_ceiling = as_int(validation["max_collection_entries"])
+        max_entries = safety_ceiling if capacity is None else min(int(capacity), safety_ceiling)
         max_level = as_int(validation["max_recipe_level"])
         max_string = as_int(validation["max_internal_string"])
 
@@ -1431,9 +1647,12 @@ class GameInventoryReader:
         for index in range(max_entries):
             entry = mem.qword(array + index * 8)
             if not entry:
-                # The validated collections are contiguous. Stopping at the first
-                # null avoids walking from the pointer array into unrelated memory.
-                break
+                # Production reads pass the observed capacity and can safely skip
+                # holes. Legacy/unit-test callers without a capacity retain the
+                # historical contiguous-array behavior.
+                if capacity is None:
+                    break
+                continue
             definition = mem.qword(entry + definition_offset)
             quantity = mem.u32(entry + quantity_offset)
             if (
@@ -1491,12 +1710,15 @@ class GameInventoryReader:
         array: int,
         total: int,
         profile: MemoryProfile,
+        *,
+        capacity: int | None = None,
     ) -> list[MemorySalvage]:
         if total == 0:
             return []
         entry_cfg = profile.structure("entries")
         validation = profile.validation()
-        max_entries = as_int(validation["max_collection_entries"])
+        safety_ceiling = as_int(validation["max_collection_entries"])
+        max_entries = safety_ceiling if capacity is None else min(int(capacity), safety_ceiling)
         max_string = as_int(validation["max_internal_string"])
 
         definition_offset = as_int(entry_cfg["definition_pointer_offset"])
@@ -1507,7 +1729,9 @@ class GameInventoryReader:
         for index in range(max_entries):
             entry = mem.qword(array + index * 8)
             if not entry:
-                break
+                if capacity is None:
+                    break
+                continue
             definition = mem.qword(entry + definition_offset)
             if not definition:
                 raise GameMemoryError(

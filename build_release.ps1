@@ -132,12 +132,15 @@ if (-not (Test-Path (Join-Path $PSScriptRoot $GitHubReleaseNotesName))) {
 $env:PYTHONPATH = Join-Path $PSScriptRoot "src"
 
 Invoke-Checked {
-    & $ReleasePython (Join-Path $PSScriptRoot "tools\validate_release_documentation_v2.py") --root $PSScriptRoot
+    & $ReleasePython (Join-Path $PSScriptRoot "tools\validate_release_documentation_v3.py") --root $PSScriptRoot
 } "Validate release documentation"
 Invoke-Checked { & $ReleasePython -m compileall -q (Join-Path $PSScriptRoot "src") (Join-Path $PSScriptRoot "field_crafter_entry.py") } "Compile Python sources"
 Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "release_self_test.py") } "Run core smoke tests"
 Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_invention_salvage_classification_v1.py") } "Run invention-salvage regression tests"
 Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_application_updates_v1.py") } "Run application-updater regression tests"
+Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_direct_player_inventory_v8.py") } "Run direct-player and inventory-layout regression tests"
+Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_memory_profile_schema_v2.py") } "Run memory-profile schema-v2 regression tests"
+Invoke-Checked { & $ReleasePython (Join-Path $PSScriptRoot "tools\test_privacy_redaction_v1.py") } "Run UI/diagnostic privacy-redaction regression tests"
 # FIELD_CRAFTER_1_16_1_FINAL_CONSOLIDATION_V1
 
 if (-not $SkipRefresh) {

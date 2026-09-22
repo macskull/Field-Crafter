@@ -1,4 +1,4 @@
-Field Crafter 1.16.1 - Python Distribution
+Field Crafter 1.16.2 - Python Distribution
 ========================================
 
 Field Crafter is a crafting inventory and shopping-list utility for
@@ -6,7 +6,7 @@ City of Heroes: Homecoming.
 
 Quick start
 -----------
-1. Extract the entire Field_Crafter_1.16.1_Python folder.
+1. Extract the entire Field_Crafter_1.16.2_Python folder.
 2. Keep the extracted folder together.
 3. Launch:
        Field Crafter.pyw
@@ -76,14 +76,16 @@ Privacy
 -------
 Game-memory reading and screenshot OCR are processed locally. Internet access is
 used when you explicitly check for crafting-data, memory-definition, or application updates.
+Windows user-profile path components are redacted from user-facing error/status
+text and shareable memory-diagnostic ZIPs.
 
 Release verification
 --------------------
-Use the SHA-256 values published with the GitHub v1.16.1 release to verify the
+Use the SHA-256 values published with the GitHub v1.16.2 release to verify the
 downloaded Python ZIP before extracting it.
 
 Project page:
     https://github.com/macskull/Field-Crafter
 
 Release page:
-    https://github.com/macskull/Field-Crafter/releases/tag/v1.16.1
+    https://github.com/macskull/Field-Crafter/releases/tag/v1.16.2

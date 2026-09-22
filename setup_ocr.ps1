@@ -6,11 +6,11 @@ $Venv = Join-Path $PSScriptRoot ".venv"
 $Python = Join-Path $Venv "Scripts\python.exe"
 
 if (-not (Test-Path $Wheelhouse)) {
-    throw "The Field Crafter offline dependency wheelhouse is missing. Re-download the complete Field_Crafter_1.16_Python.zip release asset."
+    throw "The Field Crafter offline dependency wheelhouse is missing. Re-download the complete Field_Crafter_1.16.2 development bundle."
 }
 $Wheels = @(Get-ChildItem $Wheelhouse -File -Filter "*.whl")
 if ($Wheels.Count -lt 1) {
-    throw "The Field Crafter offline dependency wheelhouse is empty. Re-download the complete Field_Crafter_1.16_Python.zip release asset."
+    throw "The Field Crafter offline dependency wheelhouse is empty. Re-download the complete Field_Crafter_1.16.2 development bundle."
 }
 
 function Find-Python313 {

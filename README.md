@@ -8,23 +8,23 @@ It can read recipes and invention salvage directly from a running City of Heroes
 
 ### Windows EXE - Recommended
 
-**[Download Field Crafter 1.16.1 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/Field_Crafter_1.16.1.exe)**
+**[Download Field Crafter 1.16.2 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2.exe)**
 
 Portable single-file Windows application. No Python installation is required.
 
 ### Python version
 
-**[Download Field Crafter 1.16.1 Python](https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/Field_Crafter_1.16.1_Python.zip)**
+**[Download Field Crafter 1.16.2 Python](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2_Python.zip)**
 
 Requires 64-bit Python 3.13. The prepared Python package includes Field Crafter's validated crafting data and an offline dependency wheelhouse used to create its private Python environment.
 
 ### Release information
 
-- **[View the full Field Crafter 1.16.1 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.16.1)**
-- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/SHA256SUMS.txt)**
-- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/RELEASE_MANIFEST.json)**
+- **[View the full Field Crafter 1.16.2 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.16.2)**
+- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/SHA256SUMS.txt)**
+- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/RELEASE_MANIFEST.json)**
 
-> The automatically generated **Source code (zip)** and **Source code (tar.gz)** files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field_Crafter_1.16.1_Python.zip` from the release assets instead.
+> The automatically generated **Source code (zip)** and **Source code (tar.gz)** files shown by GitHub are not the prepared Field Crafter Python distribution. Use `Field_Crafter_1.16.2_Python.zip` from the release assets instead.
 
 ## Features
 
@@ -91,7 +91,7 @@ The crafting database and bundled game-memory definitions are also included with
 
 Download:
 
-`Field_Crafter_1.16.1.exe`
+`Field_Crafter_1.16.2.exe`
 
 Place it anywhere you like and run it.
 
@@ -103,7 +103,7 @@ Windows SmartScreen may warn about an unknown publisher because the application 
 
 Download and extract:
 
-`Field_Crafter_1.16.1_Python.zip`
+`Field_Crafter_1.16.2_Python.zip`
 
 Keep the extracted folder together.
 
@@ -182,7 +182,7 @@ Crafting-database maintenance is separate from the signed memory-definition upda
 
 ## Game-Memory Definition Updates
 
-Field Crafter 1.16.1 adds a signed memory-definition update channel. This allows compatible memory-layout updates to be distributed independently of a full application reinstall.
+Field Crafter 1.16.1 added a signed memory-definition update channel; Field Crafter 1.16.2 expands it to support the direct-player/schema-v2 memory model. This allows compatible memory-layout updates to be distributed independently of a full application reinstall.
 
 Use **Check for memory updates** when you want Field Crafter to check the configured update channel.
 
@@ -191,7 +191,7 @@ Downloaded memory definitions are verified before they can become active. Verifi
 Field Crafter also includes conservative session recovery for compatible memory-layout changes. Recovery evidence can be included in diagnostics when a memory read needs troubleshooting.
 ## Application Updates
 
-Field Crafter 1.16.1 adds a separately signed full-application update channel for GitHub releases.
+Field Crafter 1.16.1 added a separately signed full-application update channel for GitHub releases; Field Crafter 1.16.2 is designed to be installed through that existing channel.
 
 Use **Check for app updates** on the Database tab to check for a newer compatible release. Field Crafter verifies the signed update manifest and then checks the downloaded artifact's exact size and SHA-256 before staging any replacement. Portable EXE and prepared Python releases are both supported, with rollback handling if replacement fails.
 
@@ -223,24 +223,25 @@ Field Crafter is designed to perform normal inventory processing locally.
 - Game-memory inventory reading occurs locally.
 - Screenshot OCR occurs locally.
 - Screenshots are not uploaded as part of the OCR workflow.
+- Windows user-profile path components are redacted from user-facing error/status text and shareable memory-diagnostic ZIPs.
 - Internet access is used when you explicitly check for Homecoming crafting-data updates, signed memory-definition updates, or signed application updates.
 
 ## Verify Your Download
 
 Each public release includes SHA-256 hashes in:
 
-**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/SHA256SUMS.txt)**
+**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/SHA256SUMS.txt)**
 
 To verify the portable EXE in PowerShell:
 
 ```powershell
-Get-FileHash ".\Field_Crafter_1.16.1.exe" -Algorithm SHA256
+Get-FileHash ".\Field_Crafter_1.16.2.exe" -Algorithm SHA256
 ```
 
 To verify the Python ZIP:
 
 ```powershell
-Get-FileHash ".\Field_Crafter_1.16.1_Python.zip" -Algorithm SHA256
+Get-FileHash ".\Field_Crafter_1.16.2_Python.zip" -Algorithm SHA256
 ```
 
 Compare the returned hash with the corresponding value in `SHA256SUMS.txt`.
@@ -251,7 +252,7 @@ A matching hash confirms that your downloaded file is byte-for-byte identical to
 
 ## Reporting Problems
 
-Field Crafter 1.16.1 is being made available as a public test release.
+Field Crafter 1.16.2 is being made available as a public test release with updated Live/Open Beta game-memory compatibility.
 
 If you encounter a problem, please **[open an Issue](https://github.com/macskull/Field-Crafter/issues)** and include as much relevant information as possible, such as:
 
@@ -275,4 +276,4 @@ when one is available.
 
 ## Version
 
-**Field Crafter 1.16.1 - Public Test Hotfix**
+**Field Crafter 1.16.2**

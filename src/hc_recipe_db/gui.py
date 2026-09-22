@@ -27,6 +27,7 @@ from .game_memory import (
     refresh_memory_recipe_aliases,
 )
 from .memory_diagnostics import create_memory_diagnostic_zip, default_diagnostic_dir
+from .privacy import sanitize_user_paths
 from .recognition import calculate_review, load_review, scan_screenshots
 from .updates import (
     UpdateCandidate, accept_update, build_update_candidate, database_info,
@@ -754,7 +755,7 @@ class CraftingHelperGUI:
             batches = _auction_search_batches(rows, self.ah_sort_var.get(), 128)
         except ValueError as exc:
             self._auction_batches = []
-            self.ah_summary_var.set(str(exc))
+            self.ah_summary_var.set(sanitize_user_paths(str(exc)))
             return
         self._auction_batches = batches
         if not batches:
@@ -903,7 +904,7 @@ class CraftingHelperGUI:
         except Exception as exc:
             if hasattr(self, "db_effective_var"):
                 self.db_effective_var.set("Unavailable")
-                self.db_built_var.set(str(exc))
+                self.db_built_var.set(sanitize_user_paths(str(exc)))
             return
         if hasattr(self, "db_effective_var"):
             self.db_effective_var.set(info.effective_date or "Unknown")
@@ -931,7 +932,7 @@ class CraftingHelperGUI:
         self._show_update_log()
         self.update_text.configure(state="normal")
         self.update_text.delete("1.0", "end")
-        self.update_text.insert("1.0", text)
+        self.update_text.insert("1.0", sanitize_user_paths(text))
         self.update_text.see("end")
         self.update_text.configure(state="disabled")
 
@@ -942,9 +943,9 @@ class CraftingHelperGUI:
         self.update_text.configure(state="normal")
         prior = self.update_text.get("1.0", "end-1c")
         if prior:
-            self.update_text.insert("end", "\n" + text)
+            self.update_text.insert("end", "\n" + sanitize_user_paths(text))
         else:
-            self.update_text.insert("end", text)
+            self.update_text.insert("end", sanitize_user_paths(text))
         self.update_text.see("end")
         self.update_text.configure(state="disabled")
 
@@ -979,13 +980,16 @@ class CraftingHelperGUI:
             self._append_update_log(result.message)
             self._set_status(result.message)
             from tkinter import messagebox
-            messagebox.showinfo("Application Update", result.message, parent=self.root)
+            messagebox.showinfo("Application Update", sanitize_user_paths(result.message), parent=self.root)
             return
         candidate = result.candidate
         self._application_update_candidate = candidate
         distribution = "portable EXE" if candidate.distribution == "exe" else "prepared Python package"
         size = format_download_size(candidate.artifact.size_bytes)
-        summary = f"\n\n{candidate.summary}" if candidate.summary else ""
+        summary = (
+            f"\n\n{sanitize_user_paths(candidate.summary)}"
+            if candidate.summary else ""
+        )
         self._append_update_log(
             f"Signed Field Crafter {candidate.version} release is available for the {distribution}; download size {size}."
         )
@@ -1063,13 +1067,13 @@ class CraftingHelperGUI:
                 text += f" • previous: {status.previous_pack_version}"
             if status.warning:
                 text += f" • warning: {status.warning}"
-            self.memory_profile_status_var.set(text)
+            self.memory_profile_status_var.set(sanitize_user_paths(text))
             if hasattr(self, "memory_rollback_button"):
                 self.memory_rollback_button.configure(
                     state="normal" if status.rollback_available else "disabled"
                 )
         except Exception as exc:
-            self.memory_profile_status_var.set(f"Memory definitions: unavailable ({exc})")
+            self.memory_profile_status_var.set(sanitize_user_paths(f"Memory definitions: unavailable ({exc})"))
             if hasattr(self, "memory_rollback_button"):
                 self.memory_rollback_button.configure(state="disabled")
 
@@ -1126,7 +1130,7 @@ class CraftingHelperGUI:
             self._append_update_log(result.message)
             self._set_status(result.message)
             from tkinter import messagebox
-            messagebox.showinfo("Memory Definitions", result.message, parent=self.root)
+            messagebox.showinfo("Memory Definitions", sanitize_user_paths(result.message), parent=self.root)
             return
 
         self._memory_update_candidate = result.candidate
@@ -1194,7 +1198,7 @@ class CraftingHelperGUI:
         self._append_update_log(status)
         self._set_status(status)
         from tkinter import messagebox
-        messagebox.showinfo("Memory Definitions Updated", status, parent=self.root)
+        messagebox.showinfo("Memory Definitions Updated", sanitize_user_paths(status), parent=self.root)
 
     def _memory_definition_update_failed(self, detail: str) -> None:
         candidate = getattr(self, "_memory_update_candidate", None)
@@ -1256,7 +1260,7 @@ class CraftingHelperGUI:
         self._append_update_log(status)
         self._set_status(status)
         from tkinter import messagebox
-        messagebox.showinfo("Memory Definitions", status, parent=self.root)
+        messagebox.showinfo("Memory Definitions", sanitize_user_paths(status), parent=self.root)
 
     def _set_memory_diagnostic_button(self, enabled: bool) -> None:
         if hasattr(self, "memory_diagnostic_button"):
@@ -1299,7 +1303,7 @@ class CraftingHelperGUI:
         self._hide_progress()
         self._set_memory_diagnostic_button(True)
         self._last_memory_diagnostic_path = Path(path)
-        status = f"Memory diagnostic created: {path}"
+        status = f"Memory diagnostic created: {sanitize_user_paths(path)}"
         self._append_update_log(status)
         self._set_status(status)
         from tkinter import messagebox
@@ -1307,7 +1311,7 @@ class CraftingHelperGUI:
             "Memory Diagnostic Created",
             (
                 "Field Crafter created a compact memory diagnostic ZIP.\n\n"
-                f"{path}\n\n"
+                f"{sanitize_user_paths(path)}\n\n"
                 "It contains signature/semantic observations and bounded recovery "
                 "candidates, but no raw process-memory dump.\n\n"
                 "Open the diagnostics folder?"
@@ -1534,7 +1538,7 @@ class CraftingHelperGUI:
             from tkinter import messagebox
             messagebox.showinfo(
                 "Database Updated",
-                f"The new database has been installed.\n\nThe previous database was backed up to:\n{backup}",
+                sanitize_user_paths(f"The new database has been installed.\n\nThe previous database was backed up to:\n{backup}"),
                 parent=self.root,
             )
 
@@ -1559,7 +1563,7 @@ class CraftingHelperGUI:
         try:
             processes = list_city_of_heroes_processes()
         except GameMemoryError as exc:
-            self.memory_status_var.set(str(exc))
+            self.memory_status_var.set(sanitize_user_paths(str(exc)))
             return
         self.game_processes = processes
         self._game_process_by_label = {proc.label: proc for proc in processes}
@@ -1604,7 +1608,12 @@ class CraftingHelperGUI:
                             "Unmapped recipe IDs found. Refreshing the game-memory recipe map from Homecoming Wiki..."
                         ))
                         def map_progress(message: str) -> None:
-                            self.root.after(0, lambda m=message: self.memory_status_var.set(m))
+                            self.root.after(
+                                0,
+                                lambda m=message: self.memory_status_var.set(
+                                    sanitize_user_paths(m)
+                                ),
+                            )
                             self.root.after(0, lambda m=message: self._set_status(m))
                         refresh_result = refresh_memory_recipe_aliases(
                             self.db_path, self._memory_alias_path, progress=map_progress
@@ -1704,7 +1713,7 @@ class CraftingHelperGUI:
         )
         status = "Memory read failed. Screenshots/OCR remain available as a fallback."
         if diagnostic_path:
-            status += f" Diagnostic saved: {diagnostic_path}"
+            status += f" Diagnostic saved: {sanitize_user_paths(diagnostic_path)}"
         elif diagnostic_error:
             status += " Diagnostic creation also failed."
         self.memory_status_var.set(status)
@@ -1715,7 +1724,7 @@ class CraftingHelperGUI:
         if diagnostic_path:
             message += (
                 "\n\nA compact memory diagnostic was created automatically:\n"
-                f"{diagnostic_path}\n\n"
+                f"{sanitize_user_paths(diagnostic_path)}\n\n"
                 "Upload that ZIP when reporting a post-patch memory-reading failure."
             )
         elif diagnostic_error:
@@ -1842,7 +1851,9 @@ class CraftingHelperGUI:
         for widget, values in ((self.recipe_list, self.recipe_images), (self.salvage_list, self.salvage_images)):
             widget.delete(0, "end")
             for path in values:
-                widget.insert("end", path)
+                # Keep the real path internally for OCR, but never expose the
+                # Windows profile-folder username in screenshot/shareable UI.
+                widget.insert("end", sanitize_user_paths(path))
 
     def _start_scan(self) -> None:
         if not self.recipe_images and not self.salvage_images:
@@ -2886,7 +2897,7 @@ class CraftingHelperGUI:
             pass
 
     def _set_status(self, text: str) -> None:
-        self.status_var.set(text)
+        self.status_var.set(sanitize_user_paths(text))
         try:
             self.root.update_idletasks()
         except Exception:
@@ -2894,7 +2905,7 @@ class CraftingHelperGUI:
 
     def _show_error(self, text: str) -> None:
         from tkinter import messagebox
-        messagebox.showerror("Field Crafter", text, parent=self.root)
+        messagebox.showerror("Field Crafter", sanitize_user_paths(text), parent=self.root)
 
 
 def launch_gui(*, db_path: str | Path = "data/homecoming_recipes.sqlite") -> None:

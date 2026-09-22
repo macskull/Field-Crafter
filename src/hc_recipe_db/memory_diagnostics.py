@@ -14,18 +14,20 @@ from .game_memory import (
     GameProcessInfo,
     ProcessMemory,
     _character_vitals_plausible,
+    _resolve_direct_player,
     _rip_relative_target_rva,
     _valid_identity_string,
 )
 from .memory_profiles import MemoryProfile, MemoryProfileManager, as_int, parse_signature
 from .salvage_semantics import default_invention_salvage_membership
+from .privacy import sanitize_structure
 from .version import APP_VERSION
 
 
 # FIELD_CRAFTER_MEMORY_STRUCTURAL_DIAGNOSTICS_V6
 # FIELD_CRAFTER_INVENTION_SALVAGE_DIAGNOSTICS_V1
 # FIELD_CRAFTER_INVENTION_SALVAGE_DIAGNOSTICS_V2
-DIAGNOSTIC_SCHEMA_VERSION = 3
+DIAGNOSTIC_SCHEMA_VERSION = 4
 MAX_REPORTED_SIGNATURE_HITS = 32
 MAX_REPORTED_LOCATOR_CANDIDATES = 16
 MAX_REPORTED_COLLECTION_ENTRIES = 96
@@ -467,13 +469,12 @@ def _probe_collection(
     profile: MemoryProfile,
     *,
     kind: str,
+    capacity: int | None = None,
 ) -> dict[str, Any]:
     entry_cfg = profile.structure("entries")
     validation = profile.validation()
-    max_entries = min(
-        as_int(validation["max_collection_entries"]),
-        MAX_REPORTED_COLLECTION_ENTRIES,
-    )
+    safety_ceiling = as_int(validation["max_collection_entries"])
+    max_entries = safety_ceiling if capacity is None else min(int(capacity), safety_ceiling)
     max_string = as_int(validation["max_internal_string"])
     max_level = as_int(validation["max_recipe_level"])
     definition_offset = as_int(entry_cfg["definition_pointer_offset"])
@@ -518,10 +519,14 @@ def _probe_collection(
             break
         row["entry"] = _hex(entry)
         if not entry:
-            result["entries"].append(row)
-            result["first_null_index"] = index
-            result["stopped_reason"] = "first_null"
-            break
+            if result["first_null_index"] is None:
+                result["first_null_index"] = index
+            if len(result["entries"]) < MAX_REPORTED_COLLECTION_ENTRIES:
+                result["entries"].append(row)
+            if capacity is None:
+                result["stopped_reason"] = "first_null"
+                break
+            continue
         try:
             definition = mem.qword(entry + definition_offset)
             row["definition"] = _hex(definition)
@@ -595,15 +600,12 @@ def _probe_collection(
             if counts_toward_header:
                 quantity_sum += quantity
             result["valid_entry_count"] += 1
-            result["entries"].append(row)
+            if len(result["entries"]) < MAX_REPORTED_COLLECTION_ENTRIES:
+                result["entries"].append(row)
             if quantity_sum > total:
                 result["stopped_reason"] = "quantity_sum_exceeded_header"
                 break
-            if (
-                kind == "salvage"
-                and counts_toward_header
-                and quantity_sum == total
-            ):
+            if counts_toward_header and quantity_sum == total:
                 result["stopped_reason"] = "header_total_reproduced"
                 break
         except Exception as exc:
@@ -648,13 +650,15 @@ def _probe_inventory_header(
             "capacity": capacity,
             "total": total,
             "header_plausible": bool(
-                0 <= capacity <= max_capacity
-                and 0 <= total <= capacity
+                1 <= capacity <= max_capacity
+                and 0 <= total
                 and (total == 0 or bool(array))
             ),
         })
         if result["header_plausible"]:
-            collection = _probe_collection(mem, array, total, profile, kind=kind)
+            collection = _probe_collection(
+                mem, array, total, profile, kind=kind, capacity=capacity
+            )
         else:
             collection = {
                 "entries": [],
@@ -1016,6 +1020,93 @@ def _probe_roster(
     }
 
 
+def _probe_direct_player(mem: ProcessMemory, profile: MemoryProfile) -> dict[str, Any]:
+    if not profile.uses_direct_player_resolver():
+        return {"supported": False, "valid": False, "reason": "legacy_profile"}
+    player = profile.locator("player")
+    entity_table = profile.locator("entity_table")
+    player_hits = mem.signature_hits(str(player["pattern"]))
+    table_hits = mem.signature_hits(str(entity_table["pattern"]))
+    result: dict[str, Any] = {
+        "supported": True,
+        "player_signature_hit_count": len(player_hits),
+        "player_signature_hit_rvas": [_hex(x) for x in player_hits[:MAX_REPORTED_SIGNATURE_HITS]],
+        "entity_table_signature_hit_count": len(table_hits),
+        "entity_table_signature_hit_rvas": [_hex(x) for x in table_hits[:MAX_REPORTED_SIGNATURE_HITS]],
+        "valid": False,
+    }
+    try:
+        name, entity, character = _resolve_direct_player(mem, profile)
+        trained_level = None
+        cfg = profile.structure("character")
+        if "trained_level_offset" in cfg:
+            trained0 = mem.u32(character + as_int(cfg["trained_level_offset"]))
+            trained_level = trained0 + 1 if 0 <= trained0 <= 49 else None
+        result.update({
+            "valid": True,
+            "character_name": name,
+            "entity_address": _hex(entity),
+            "character_address": _hex(character),
+            "trained_level": trained_level,
+            "vitals": _read_vitals(mem, character, profile),
+            "inventory_layouts": _probe_known_inventory_layouts(
+                mem, character, profile, trained_level=trained_level
+            ),
+        })
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def _probe_known_inventory_layouts(
+    mem: ProcessMemory,
+    character: int,
+    profile: MemoryProfile,
+    *,
+    trained_level: int | None,
+) -> dict[str, Any]:
+    validation = profile.validation()
+    results: list[dict[str, Any]] = []
+    valid_ids: list[str] = []
+    for raw_layout in profile.inventory_layouts():
+        layout_id = str(raw_layout.get("id") or "unnamed")
+        row: dict[str, Any] = {"id": layout_id, "valid": False}
+        reasons: list[str] = []
+        for key, probe_kind in (("recipes", "recipe"), ("salvage", "salvage")):
+            cfg = raw_layout[key]
+            collection_offset = as_int(cfg["collection_offset"])
+            probe = _probe_inventory_header(
+                mem, character, profile, kind=probe_kind,
+                collection_offset=collection_offset,
+                capacity_delta=as_int(cfg["capacity_offset"]) - collection_offset,
+                count_delta=as_int(cfg["count_offset"]) - collection_offset,
+            )
+            if trained_level == 50 and probe.get("header_plausible"):
+                minimum_key = (
+                    "level_50_min_recipe_capacity" if key == "recipes"
+                    else "level_50_min_salvage_capacity"
+                )
+                minimum = as_int(validation.get(minimum_key, 1))
+                probe["level_50_minimum"] = minimum
+                probe["level_50_minimum_met"] = int(probe.get("capacity") or 0) >= minimum
+                if not probe["level_50_minimum_met"]:
+                    probe["semantic_valid"] = False
+            row[key] = probe
+            if not probe.get("semantic_valid"):
+                reasons.append(f"{key}_invalid")
+        row["reasons"] = reasons
+        row["valid"] = not reasons
+        if row["valid"]:
+            valid_ids.append(layout_id)
+        results.append(row)
+    return {
+        "candidates": results,
+        "valid_layout_ids": valid_ids,
+        "selected": valid_ids[0] if len(valid_ids) == 1 else None,
+        "status": "unique" if len(valid_ids) == 1 else ("none" if not valid_ids else "ambiguous"),
+    }
+
+
 def collect_memory_diagnostic(
     process: GameProcessInfo | int,
     *,
@@ -1055,8 +1146,12 @@ def collect_memory_diagnostic(
 
         for profile in manager.candidates():
             profile_report = _profile_summary(profile)
+            direct_player = _probe_direct_player(mem, profile)
             try:
-                identity = _probe_identity(mem, profile)
+                identity = _probe_identity(mem, profile) if "identity" in (profile.data.get("locators") or {}) else {
+                    "diagnostic_only": True, "signature_hit_count": 0, "candidates": [],
+                    "nearest_landmarks": {"attempted": False, "reason": "locator_not_present", "candidates": []},
+                }
             except Exception as exc:
                 identity = {"error": str(exc), "signature_hit_count": 0, "candidates": [], "nearest_landmarks": {"attempted": False, "reason": "probe_failed", "candidates": []}}
             try:
@@ -1078,36 +1173,53 @@ def collect_memory_diagnostic(
                 # evidence; structural candidates are never auto-adopted.
                 identity_names.add(str(label_name).strip())
             try:
-                roster = _probe_roster(mem, profile, identity_names)
+                roster = (
+                    _probe_roster(mem, profile, identity_names)
+                    if "roster" in (profile.data.get("locators") or {})
+                    else {"diagnostic_only": True, "signature_hit_count": 0, "candidates": [],
+                          "nearest_landmarks": {"attempted": False, "reason": "locator_not_present", "candidates": []}}
+                )
             except Exception as exc:
                 roster = {"error": str(exc), "signature_hit_count": 0, "candidates": [], "nearest_landmarks": {"attempted": False, "reason": "probe_failed", "candidates": []}}
 
-            try:
-                from .memory_structural_diagnostics import (
-                    collect_structural_drift_evidence,
-                )
-                structural = collect_structural_drift_evidence(
-                    mem,
-                    profile,
-                    trusted_identity_names=identity_names,
-                    roster_observation=roster,
-                )
-            except Exception as exc:
+            if profile.uses_direct_player_resolver():
                 structural = {
                     "diagnostic_only": True,
                     "auto_adopted": False,
                     "persistent_changes": False,
-                    "status": "probe_failed",
-                    "error": str(exc),
+                    "status": "superseded_by_direct_player_and_known_layout_probes",
                 }
+            else:
+                try:
+                    from .memory_structural_diagnostics import (
+                        collect_structural_drift_evidence,
+                    )
+                    structural = collect_structural_drift_evidence(
+                        mem,
+                        profile,
+                        trusted_identity_names=identity_names,
+                        roster_observation=roster,
+                    )
+                except Exception as exc:
+                    structural = {
+                        "diagnostic_only": True,
+                        "auto_adopted": False,
+                        "persistent_changes": False,
+                        "status": "probe_failed",
+                        "error": str(exc),
+                    }
 
             profile_report["observations"] = {
+                "direct_player": direct_player,
                 "identity": identity,
                 "server": server,
                 "roster": roster,
                 "structural_drift": structural,
             }
             profile_report["summary"] = {
+                "direct_player_valid": bool(direct_player.get("valid")),
+                "inventory_layout_status": ((direct_player.get("inventory_layouts") or {}).get("status") or ""),
+                "inventory_layout_selected": ((direct_player.get("inventory_layouts") or {}).get("selected")),
                 "identity_valid_candidates": int(identity.get("valid_candidate_count") or 0),
                 "server_valid_candidates": int(server.get("valid_candidate_count") or 0),
                 "roster_semantic_valid_candidates": int(
@@ -1152,9 +1264,37 @@ def _analysis_text(report: dict[str, Any]) -> str:
             f"{profile.get('profile_version')} [{profile.get('source')}]"
         )
         obs = profile.get("observations") or {}
+        direct_player = obs.get("direct_player") or {}
         identity = obs.get("identity") or {}
         server = obs.get("server") or {}
         roster = obs.get("roster") or {}
+
+        if direct_player.get("supported"):
+            lines.append(
+                f"  Direct player: valid={direct_player.get('valid')}, "
+                f"player signature hits={direct_player.get('player_signature_hit_count', 0)}, "
+                f"entity-table hits={direct_player.get('entity_table_signature_hit_count', 0)}, "
+                f"name={direct_player.get('character_name')!r}, "
+                f"trained_level={direct_player.get('trained_level')}"
+            )
+            layouts = direct_player.get("inventory_layouts") or {}
+            lines.append(
+                f"    inventory layouts: status={layouts.get('status')}, "
+                f"selected={layouts.get('selected')}, valid={layouts.get('valid_layout_ids')}"
+            )
+            for candidate in layouts.get("candidates") or []:
+                lines.append(
+                    f"      {candidate.get('id')}: valid={candidate.get('valid')}, "
+                    f"reasons={candidate.get('reasons')}"
+                )
+                for kind in ("recipes", "salvage"):
+                    block = candidate.get(kind) or {}
+                    coll = block.get("collection") or {}
+                    lines.append(
+                        f"        {kind}: capacity={block.get('capacity')}, total={block.get('total')}, "
+                        f"quantity_sum={coll.get('quantity_sum')}, semantic_valid={block.get('semantic_valid')}, "
+                        f"namespace={(coll.get('namespace') or {}).get('status')}"
+                    )
 
         for label, block, valid_key in (
             ("Identity", identity, "valid_candidate_count"),
@@ -1350,6 +1490,10 @@ def create_memory_diagnostic_zip(
     temp_path = final_path.with_suffix(".zip.new")
 
     report = collect_memory_diagnostic(process, failure_detail=failure_detail)
+    # Diagnostics are designed to be shareable. Remove machine-local profile
+    # usernames/path prefixes before either JSON or human-readable analysis is
+    # written into the archive.
+    report = sanitize_structure(report)
     report_json = (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     analysis = (_analysis_text(report) + "\n").encode("utf-8")
 

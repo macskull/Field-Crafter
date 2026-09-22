@@ -238,8 +238,8 @@ def _raw_inventory_header(
         capacity = int(mem.u32(character + collection_offset + capacity_delta))
         total = int(mem.u32(character + collection_offset + count_delta))
         plausible = bool(
-            0 <= capacity <= max_capacity
-            and 0 <= total <= capacity
+            1 <= capacity <= max_capacity
+            and 0 <= total
             and (total == 0 or array != 0)
         )
         return {

@@ -29,6 +29,14 @@ def find_root(start: Path) -> Path:
     raise RuntimeError("Could not find the Field Crafter 1.16 source root.")
 
 
+def release_version(root: Path) -> str:
+    text = (root / "src" / "hc_recipe_db" / "version.py").read_text(encoding="utf-8")
+    import re
+    match = re.search(r'(?m)^RELEASE_VERSION\s*=\s*"([^"]+)"\s*$', text)
+    if not match:
+        raise RuntimeError("Could not read RELEASE_VERSION.")
+    return match.group(1)
+
 def diagnostics_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA")
     root = Path(base) / "FieldCrafter" if base else Path.home() / ".field_crafter"
@@ -90,7 +98,7 @@ def run_publisher(
         "--output-dir",
         str(output_dir),
         "--min-field-crafter-version",
-        "1.16",
+        release_version(root),
         "--channel",
         channel,
         "--raw-base-url",
@@ -292,7 +300,7 @@ def main() -> int:
             "schema_version": 1,
             "channel": channel,
             "pack_version": pack_version,
-            "min_field_crafter_version": "1.16",
+            "min_field_crafter_version": release_version(root),
             "pack_url": raw_base_url.rstrip("/") + "/" + expected_filename,
             "pack_sha256": source_pack_hash,
         }

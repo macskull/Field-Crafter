@@ -1,0 +1,79 @@
+FIELD CRAFTER 1.16.2 APPLICATION UPDATE PUBLICATION
+==================================================
+
+Precondition
+------------
+The tested Windows 1.16.2 release build must already exist in .\dist and contain:
+  Field_Crafter_1.16.2.exe
+  Field_Crafter_1.16.2_Python.zip
+  SHA256SUMS.txt
+  RELEASE_MANIFEST.json
+
+Keep the private Ed25519 application-update signing key OUTSIDE the Field Crafter
+source/release tree.
+
+1. Stage and verify the signed updater manifest
+------------------------------------------------
+Copy prepare_field_crafter_1_16_2_app_update.ps1 into the Field Crafter 1.16.2
+source root, then run, replacing the example key path with the real external key:
+
+  powershell -ExecutionPolicy Bypass -File .\prepare_field_crafter_1_16_2_app_update.ps1 `
+    -PrivateKey "D:\Path\To\private\Field_Crafter_application_update_signing_key_v1.json"
+
+The script MUST end with:
+  PASS: application-update signing key matches the public key already trusted by 1.16.1.
+  1.16.2 APPLICATION-UPDATE MANIFEST STAGED AND VERIFIED
+
+It writes:
+  .\application_update_publish\manifest.json
+
+It deliberately does NOT modify:
+  .\updates\manifest.json
+
+2. Publish GitHub release v1.16.2 first
+---------------------------------------
+Use GITHUB_RELEASE_1.16.2.md for the release notes and upload the exact validated
+artifacts from .\dist:
+  Field_Crafter_1.16.2.exe
+  Field_Crafter_1.16.2_Python.zip
+  SHA256SUMS.txt
+  RELEASE_MANIFEST.json
+
+Do not replace updates/manifest.json before these assets are available at:
+  https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2.exe
+  https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2_Python.zip
+
+3. Activate the application update channel
+------------------------------------------
+After both assets are publicly reachable, copy the already signed staged manifest:
+
+  Copy-Item .\application_update_publish\manifest.json .\updates\manifest.json
+
+Inspect it:
+
+  Get-Content .\updates\manifest.json
+
+Then commit/push that exact updates/manifest.json to the main branch of:
+  macskull/Field-Crafter
+
+The raw URL already trusted by 1.16.1 is:
+  https://raw.githubusercontent.com/macskull/Field-Crafter/main/updates/manifest.json
+
+4. End-to-end upgrade test
+--------------------------
+Using an untouched stock Field Crafter 1.16.1 EXE installation:
+  - Launch 1.16.1.
+  - Use Database -> Check for app updates.
+  - Confirm it reports 1.16.2.
+  - Install the update.
+  - Confirm Field Crafter restarts as 1.16.2.
+  - Confirm inventory import still works.
+  - Relaunch once more to ensure update finalization/backup cleanup behaves normally.
+
+Do the same with the prepared 1.16.1 Python distribution if that distribution was
+publicly supported/tested for 1.16.1.
+
+5. Only after 1.16.2 application update is proven
+-------------------------------------------------
+Publish the schema-v2 memory-definition channel update with minimum Field Crafter
+version 1.16.2. Stock 1.16.1 must never be pointed at schema-v2 memory definitions.

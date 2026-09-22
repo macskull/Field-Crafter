@@ -10,7 +10,7 @@ Public/runtime files:
 - release_data_summary.json: strict release status, coverage, counts, and hashes.
 - release_database_info.json: compact release/database metadata for inspection.
 
-For a public Field Crafter 1.16.1 release, prepare_release.py builds a fresh candidate
+For a public Field Crafter 1.16.2 release, prepare_release.py builds a fresh candidate
 from Homecoming Wiki, rebuilds the complete memory recipe map, validates complete
 mapping coverage and database integrity, validates the bundled memory definition
 pack and both signed-update configurations, and only then installs the candidate as factory data.

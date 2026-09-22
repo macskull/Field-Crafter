@@ -1,0 +1,64 @@
+FIELD CRAFTER 1.16.2 RELEASE NOTES
+==================================
+
+Field Crafter 1.16.2 updates direct game-memory reading for the September 2026
+Homecoming client changes while preserving the signed GitHub application-update
+path introduced in 1.16.1.
+
+GAME MEMORY RESOLUTION
+----------------------
+- Added the direct local-player Entity resolver validated on current Live and
+  Open Beta clients, with independent live Entity-table membership, active-flag,
+  Entity-index, Character, trained-level, and PowerSet-array checks.
+- Updated character selection so the legacy identity/roster path is diagnostic
+  only when the direct-player resolver is available and cannot silently replace
+  the authoritative resolver after a failure.
+- Updated process labels to resolve the character through the same direct-player
+  path, fixing Open Beta instances where the old identity signature no longer exists.
+
+INVENTORY LAYOUTS
+-----------------
+- Added semantic selection between the pre-patch inventory layout and the current
+  Open Beta layout where both recipe and salvage headers moved by +0x10.
+- Updated inventory capacities to be read dynamically from each character instead
+  of treating observed values such as 170 salvage and 80 recipe slots as exact.
+- Added trained-level-50 minimum sanity checks of at least 170 salvage slots and
+  at least 80 recipe slots while allowing larger capacities.
+- Fixed validation so stacked recipe/salvage quantities may exceed slot capacity;
+  capacity is a slot count while the header total is summed item quantity.
+- Updated production enumeration to use the observed capacity as the primary array
+  bound, retain a separate safety ceiling, tolerate null holes, and stop as soon
+  as the authoritative quantity total is reproduced.
+- Updated diagnostics to use the same dynamic-capacity and quantity semantics and
+  to report direct-player and known-layout selection results.
+- Added Auto-leveler-style privacy redaction for Windows user-profile path
+  components in user-facing status/error text, screenshot-path lists, and
+  shareable memory-diagnostic ZIPs while retaining the real paths internally.
+
+MEMORY DEFINITION UPDATES
+-------------------------
+- Added memory-profile schema v2 with direct-player, Entity-table, and multiple
+  signed inventory-layout definitions while retaining read support for schema-v1
+  packs for compatibility tooling.
+- Updated profile precedence so the bundled/newer direct-player generation cannot
+  be silently overridden by an older downloaded schema-v1 profile.
+- Updated memory-channel publication tooling so schema-v2 packs require the current
+  Field Crafter application version before installation.
+
+APPLICATION UPDATES
+-------------------
+- Updated Field Crafter through the same separately signed GitHub application
+  update channel already trusted by existing 1.16.1 installations.
+- Updated release packaging while preserving the existing application-update public key and manifest configuration,
+  allowing 1.16.1 users to install 1.16.2 in place without a manual reinstall.
+- Updated the new resolver/profile support so future compatible signature or layout
+  drift can again be delivered as signed memory-definition updates when possible.
+
+RELEASE VALIDATION
+------------------
+- Added direct-player and multi-layout regression coverage, including a synthetic
+  stacked-inventory case where total quantity is greater than slot capacity.
+- Added integrated Python development validation against current Live and Open
+  Beta: the common direct-player resolver passed on both and each client selected
+  exactly its intended inventory layout with the other layout rejected.
+- Updated release packaging/documentation gates for Field Crafter 1.16.2.

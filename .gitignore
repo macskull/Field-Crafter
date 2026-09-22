@@ -20,3 +20,8 @@ data/field_crafter_1_*_notes.txt
 BUILD_STATUS_1.15.txt
 *memory_update_signing_key*.json
 memory_publish/
+.venv/
+.pytest_cache/
+application_update_publish/
+*application_update_signing_key*.json
+*.whl

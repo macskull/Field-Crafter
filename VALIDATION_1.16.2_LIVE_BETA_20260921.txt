@@ -1,0 +1,89 @@
+FIELD CRAFTER 1.16.2 SOURCE VALIDATION - LIVE + OPEN BETA
+=========================================================
+
+Date: 2026-09-21 (America/Los_Angeles)
+Build: Field Crafter 1.16.2-dev, Python development launch
+
+Purpose
+-------
+Validate the integrated direct-player resolver and semantic inventory-layout
+selection on both current Homecoming Live and Open Beta before packaging the
+Windows release candidate.
+
+Privacy
+-------
+This summary intentionally omits character/user names. The source also applies
+Auto-leveler-style Windows user-profile path redaction to user-facing text and
+shareable memory-diagnostic ZIP contents.
+
+OPEN BETA RESULT
+----------------
+Client SHA-256:
+  4c5261b5f7f3edcd78a9e6613ddc1e24ad084e39474c3bada9883c8445772004
+
+Diagnostic ZIP SHA-256:
+  951a416704736ca1b9ad47eeceebd58689f3dc29d6206d67e6dff9a64e072a5b
+
+Direct-player resolver:
+  PASS
+  player signature hits:      1
+  Entity-table signature hits: 1
+  trained level:              50
+
+Inventory layout selection:
+  status: unique
+  valid layout: post_beta_2026_09_plus_0x10
+
+Selected headers:
+  salvage: Character +0x1438
+  recipes: Character +0x1488
+
+Selected-layout semantics:
+  recipes: capacity=80, total=10, quantity_sum=10, type_match
+  salvage: capacity=170, total=15, quantity_sum=15, type_match
+
+Legacy pre-patch layout:
+  correctly rejected
+
+The obsolete identity signature is not required for acceptance on this build.
+
+LIVE RESULT
+-----------
+Client SHA-256:
+  46b71b81f2c1b3c7754f70aa3c170bb1a78300caf3d12083a21c2b657d2702a9
+
+Diagnostic ZIP SHA-256:
+  c4f36c106e0fdb666677bcc5b9d278135e56f52e781597ec121d8efb2878d0fb
+
+Direct-player resolver:
+  PASS
+  player signature hits:       1
+  Entity-table signature hits: 1
+  trained level:               50
+
+Inventory layout selection:
+  status: unique
+  valid layout: pre_patch_2026_09
+
+Selected headers:
+  salvage: Character +0x1428
+  recipes: Character +0x1478
+
+Selected-layout semantics:
+  recipes: capacity=80, total=53, quantity_sum=53, type_match
+  salvage: capacity=170, total=170, quantity_sum=170, type_match
+
+Shifted Open-Beta layout:
+  correctly rejected
+
+CONCLUSION
+----------
+The integrated 1.16.2-dev memory path selected exactly one valid inventory epoch
+on each current client and the common direct-player resolver validated on both.
+Source-level Live/Open-Beta memory validation therefore passes.
+
+Remaining release work:
+- Build the Windows 1.16.2 release candidate.
+- Repeat Live/Open-Beta smoke tests with the packaged EXE.
+- Verify a stock 1.16.1 install can authenticate/download/install 1.16.2 through
+  the existing signed GitHub application-update channel before publication.
