@@ -1,21 +1,21 @@
 {
   "artifacts": {
     "exe": {
-      "bytes": 127517078,
-      "sha256": "45a0ec347d34fcaf9406fd5cbe75e52f96e7e37f9044a33375555b7cf6fb625a",
-      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/Field_Crafter_1.16.1.exe"
+      "bytes": 127977635,
+      "sha256": "6e594fab92f90cbb139818e741fa3f27ce60d7d5152c24e34f397f0f417c73fe",
+      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2.exe"
     },
     "python": {
-      "bytes": 113227451,
-      "sha256": "1bcb1373b762b85d2ebdc74ec5acb6694d2cbb526ee74db4fcd8da27c2ca0fc0",
-      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.1/Field_Crafter_1.16.1_Python.zip"
+      "bytes": 113663818,
+      "sha256": "5d9d4eb516e88f3086a651bc117e56dd08184071cbc1fe0fc9af6154da4fb6f2",
+      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2_Python.zip"
     }
   },
   "channel": "public-test",
   "minimum_updater_version": "1.16.1",
-  "release_url": "https://github.com/macskull/Field-Crafter/releases/tag/v1.16.1",
+  "release_url": "https://github.com/macskull/Field-Crafter/releases/tag/v1.16.2",
   "schema_version": 1,
-  "signature": "b+OaiQw2uWg7c/JO0Br0rEQLrjS99yMQxmA+LuS5Gg7Y7DZgCmAmkz0br6RuWeJ18iVeOxlsZCYsd97rmWA5BQ==",
-  "summary": "Field Crafter 1.16.1 adds signed application updates and fixes invention salvage memory reads.",
-  "version": "1.16.1"
+  "signature": "bRWKWOBiDWk60Z7OgsVmDmw22S8c88ATT8/TpB0drYLfVoQhwXgToU5iYUEMNoMTy3W8xMOmLsGn3F3eZf8aBQ==",
+  "summary": "Field Crafter 1.16.2 updates game-memory reading for current Live and Open Beta clients and adds the schema-v2 memory resolver framework.",
+  "version": "1.16.2"
 }
