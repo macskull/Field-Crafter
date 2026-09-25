@@ -1,21 +1,21 @@
 {
   "artifacts": {
     "exe": {
-      "bytes": 127977635,
-      "sha256": "6e594fab92f90cbb139818e741fa3f27ce60d7d5152c24e34f397f0f417c73fe",
-      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2.exe"
+      "bytes": 127995551,
+      "sha256": "7b09d736c0362a1a7dee863d7623248e0b1bf3983e76749ca89aed8395d0530d",
+      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/Field_Crafter.exe"
     },
     "python": {
-      "bytes": 113663818,
-      "sha256": "5d9d4eb516e88f3086a651bc117e56dd08184071cbc1fe0fc9af6154da4fb6f2",
-      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2_Python.zip"
+      "bytes": 127137791,
+      "sha256": "42fb05d5ec5eb96396121f21c07a4e2b900b89a0b108bb88518f998470c614e9",
+      "url": "https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/Field_Crafter_1.16.3_Python.zip"
     }
   },
   "channel": "public-test",
   "minimum_updater_version": "1.16.1",
-  "release_url": "https://github.com/macskull/Field-Crafter/releases/tag/v1.16.2",
+  "release_url": "https://github.com/macskull/Field-Crafter/releases/tag/v1.16.3",
   "schema_version": 1,
-  "signature": "4BQNff7fmDbz7bl1PiFP+V/dshYswKascGEM1FLcJycJX0Imda5m7XmhkUoJ40Bv9l1hJ3/eZxkzW3A+RKbeDw==",
-  "summary": "Field Crafter 1.16.2 updates game-memory reading for current Live and Open Beta clients. Portable EXE users updating from 1.16.1: the automatic restart may show a missing python313.dll error. If that specific error appears, close the dialog and launch Field Crafter again manually; 1.16.2 should then start and finalize the update normally.",
-  "version": "1.16.2"
+  "signature": "J8a8QChVSx19BuygMhQfiq77kuq+KN4KtzzLFpG/hHW2HTe5pNKRXTTQqB1ThupuaSoQtu0wiKC9MwLG3GmdAw==",
+  "summary": "Field Crafter 1.16.3 adds the permanent Field Crafter.exe name, improved application-update progress, automatic application and memory update checks on launch, and safer inventory handling. Users updating from the 1.16.2 portable EXE may see a one-time missing-python313.dll error during automatic restart; if that occurs, manually start Field Crafter again to finish the transition.",
+  "version": "1.16.3"
 }
