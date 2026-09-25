@@ -8,15 +8,15 @@ It can read recipes and invention salvage directly from a running City of Heroes
 
 ### Windows EXE
 
-**[Download Field Crafter 1.16.2 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/Field_Crafter_1.16.2.exe)**
+**[Download Field Crafter 1.16.3 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/Field%20Crafter.exe)**
 
 Field Crafter is distributed as a portable single-file Windows application. No installation or Python environment is required.
 
 ### Release information
 
-- **[View the Field Crafter 1.16.2 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.16.2)**
-- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/SHA256SUMS.txt)**
-- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/RELEASE_MANIFEST.json)**
+- **[View the Field Crafter 1.16.3 release](https://github.com/macskull/Field-Crafter/releases/tag/v1.16.3)**
+- **[Download SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/SHA256SUMS.txt)**
+- **[Download RELEASE_MANIFEST.json](https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/RELEASE_MANIFEST.json)**
 
 ## About this repository
 
@@ -83,7 +83,7 @@ The portable EXE does not require a Python installation.
 
 ## Getting Started
 
-1. Download `Field_Crafter_1.16.2.exe`.
+1. Download `Field Crafter.exe`.
 2. Place it anywhere you like.
 3. Run the application.
 4. Start City of Heroes and log into the character whose inventory you want to read.
@@ -146,7 +146,7 @@ Crafting-database maintenance is separate from application updates and game-memo
 
 Field Crafter supports signed game-memory definition updates so compatible memory-layout changes can be distributed independently of a full application release.
 
-Use **Check for memory updates** to check the configured update channel.
+Field Crafter checks for memory-definition updates automatically on launch by default. You can disable automatic launch checks in the Database tab, and **Check for memory updates** remains available for manual checks.
 
 Downloaded definitions are verified before becoming active. Validation includes signed metadata, SHA-256 integrity checks, schema checks, version compatibility, and live validation where required.
 
@@ -154,7 +154,7 @@ Downloaded definitions are verified before becoming active. Validation includes 
 
 Field Crafter includes a signed application-update channel.
 
-Use **Check for app updates** on the Database tab to check for a newer compatible release.
+Field Crafter checks for application updates automatically on launch by default. You can disable automatic launch checks in the Database tab, and **Check for app updates** remains available for manual checks.
 
 Downloaded application updates are verified against signed metadata, expected size, and SHA-256 before replacement is attempted.
 
@@ -193,12 +193,12 @@ Field Crafter performs normal inventory processing locally.
 
 Each public release includes SHA-256 hashes in:
 
-**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.2/SHA256SUMS.txt)**
+**[SHA256SUMS.txt](https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/SHA256SUMS.txt)**
 
 To verify the current portable EXE in PowerShell:
 
 ```powershell
-Get-FileHash ".\Field_Crafter_1.16.2.exe" -Algorithm SHA256
+Get-FileHash ".\Field Crafter.exe" -Algorithm SHA256
 ```
 
 Compare the returned hash with the value in `SHA256SUMS.txt`.
@@ -226,4 +226,4 @@ when one is available.
 
 ## Current Release
 
-**Field Crafter 1.16.2**
+**Field Crafter 1.16.3**
