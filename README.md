@@ -8,7 +8,7 @@ It can read recipes and invention salvage directly from a running City of Heroes
 
 ### Windows EXE
 
-**[Download Field Crafter 1.16.3 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/Field%20Crafter.exe)**
+**[Download Field Crafter 1.16.3 for Windows](https://github.com/macskull/Field-Crafter/releases/download/v1.16.3/Field_Crafter.exe)**
 
 Field Crafter is distributed as a portable single-file Windows application. No installation or Python environment is required.
 
@@ -83,7 +83,7 @@ The portable EXE does not require a Python installation.
 
 ## Getting Started
 
-1. Download `Field Crafter.exe`.
+1. Download `Field_Crafter.exe`.
 2. Place it anywhere you like.
 3. Run the application.
 4. Start City of Heroes and log into the character whose inventory you want to read.
@@ -91,6 +91,8 @@ The portable EXE does not require a Python installation.
 6. Click **Read inventory**.
 
 No installation is required.
+
+On first launch, Field Crafter may rename and restart itself as `Field Crafter.exe`. That is the permanent local executable name used after the transition.
 
 Windows SmartScreen may warn about an unknown publisher because the application is not currently code-signed. You can verify the downloaded file against the published SHA-256 hash.
 
@@ -198,7 +200,7 @@ Each public release includes SHA-256 hashes in:
 To verify the current portable EXE in PowerShell:
 
 ```powershell
-Get-FileHash ".\Field Crafter.exe" -Algorithm SHA256
+Get-FileHash ".\Field_Crafter.exe" -Algorithm SHA256
 ```
 
 Compare the returned hash with the value in `SHA256SUMS.txt`.
